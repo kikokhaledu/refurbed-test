@@ -1,0 +1,59 @@
+[
+  {
+    "id": "p1",
+    "discount_percent": 25,
+    "bestseller": true,
+    "colors": ["blue", "red", "green"],
+    "stock": 34
+  },
+  {
+    "id": "p2",
+    "discount_percent": 10,
+    "bestseller": true,
+    "colors": ["silver", "gray"],
+    "stock": 12
+  },
+  {
+    "id": "p3",
+    "discount_percent": 15,
+    "bestseller": false,
+    "colors": ["silver", "blue", "pink"],
+    "stock": 23
+  },
+  {
+    "id": "p4",
+    "discount_percent": 20,
+    "bestseller": true,
+    "colors": ["white"],
+    "stock": 45
+  },
+  {
+    "id": "p5",
+    "discount_percent": 0,
+    "bestseller": false,
+    "colors": ["black", "silver", "blue"],
+    "stock": 18
+  },
+  {
+    "id": "p6",
+    "discount_percent": 5,
+    "bestseller": false,
+    "colors": ["silver", "blue", "green", "pink"],
+    "stock": 8
+  },
+  {
+    "id": "p7",
+    "discount_percent": 12,
+    "bestseller": false,
+    "colors": ["silver"],
+    "stock": 15
+  },
+  {
+    "id": "p8",
+    "discount_percent": 0,
+    "bestseller": false,
+    "colors": ["white", "blue", "orange"],
+    "stock": 67
+  }
+]
+
