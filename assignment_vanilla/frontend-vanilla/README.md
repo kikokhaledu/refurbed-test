@@ -1,35 +1,26 @@
 # Frontend - Vanilla JavaScript
 
-## Prerequisites
-- Node.js 18 or higher
+This is the vanilla frontend starter option (not the primary implemented track in this repository).
 
-## Running the Development Server
+## Prerequisites
+- Node.js 18+
+- Backend running on `http://localhost:8080`
+
+## Local Development
+From this directory:
 
 ```bash
-cd frontend-vanilla
 npm install
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`
+Frontend is available at `http://localhost:5173`.
 
-## Building for Production
-
+## Build
 ```bash
 npm run build
 ```
 
-## Alternative: Run without Node.js
-
-You can also use Python's built-in server:
-
-```bash
-python3 -m http.server 8000
-```
-
-Or any other static file server.
-
-## Backend Connection
-
-Make sure the backend is running on `http://localhost:8080` before starting the frontend.
-
+## Notes
+- This starter can be used instead of the Vue track if needed.
+- Main implemented frontend for this assignment is in `assignment_vue/frontend-vue`.

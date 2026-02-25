@@ -1,29 +1,40 @@
-# Vue 3 + Tailwind Assignment
+# Vue Track Overview
+
+This folder contains the Vue frontend track.
 
 ## Structure
-
-```
+```text
 assignment_vue/
-└── frontend-vue/    # Vue 3 + Vite + Tailwind frontend
+`-- frontend-vue/    # Vue 3 + Vite + Tailwind implementation
 ```
 
-**Backend:** Use the shared `backend/` folder at the root level.
+Backend is shared from the repository root in `backend/`.
 
-## Quick Start
+## Run Options
 
-### 1. Start Backend (from root)
+### Local Development
+1. Start backend:
 ```bash
-cd ../backend
-go run main.go
+cd backend
+go run .
 ```
-
-### 2. Start Frontend
+2. Start Vue frontend:
 ```bash
-cd frontend-vue
+cd assignment_vue/frontend-vue
 npm install
 npm run dev
 ```
 
-Frontend runs on: `http://localhost:5173`  
-Backend runs on: `http://localhost:8080`
+### Docker Compose (recommended)
+From repository root:
+```bash
+make up
+```
 
+## URLs
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8080`
+
+## Related Docs
+- Vue frontend details: [frontend-vue/README.md](./frontend-vue/README.md)
+- Backend details: [../backend/README.md](../backend/README.md)

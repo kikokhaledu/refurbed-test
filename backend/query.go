@@ -12,22 +12,51 @@ const (
 	maxLimit     = 100
 )
 
+var allowedQueryParams = map[string]struct{}{
+	"search":     {},
+	"color":      {},
+	"category":   {},
+	"condition":  {},
+	"bestseller": {},
+	"inStock":    {},
+	"onSale":     {},
+	"minStock":   {},
+	"minPrice":   {},
+	"maxPrice":   {},
+	"sort":       {},
+	"limit":      {},
+	"offset":     {},
+}
+
 type ProductQuery struct {
 	Search     string
 	Colors     []string
+	Categories []string
+	Conditions []string
+	Sort       string
 	Bestseller *bool
+	InStock    *bool
+	OnSale     *bool
 	MinPrice   *float64
 	MaxPrice   *float64
+	MinStock   *int
 	Limit      int
 	Offset     int
 }
 
 func ParseProductQuery(values url.Values) (ProductQuery, error) {
+	if err := validateAllowedQueryParams(values); err != nil {
+		return ProductQuery{}, err
+	}
+
 	query := ProductQuery{
-		Search: strings.TrimSpace(values.Get("search")),
-		Colors: parseColors(values),
-		Limit:  defaultLimit,
-		Offset: 0,
+		Search:     strings.TrimSpace(values.Get("search")),
+		Colors:     parseTokenList(values, "color"),
+		Categories: parseTokenList(values, "category"),
+		Conditions: parseTokenList(values, "condition"),
+		Sort:       "",
+		Limit:      defaultLimit,
+		Offset:     0,
 	}
 
 	if bestsellerRaw := strings.TrimSpace(values.Get("bestseller")); bestsellerRaw != "" {
@@ -36,6 +65,21 @@ func ParseProductQuery(values url.Values) (ProductQuery, error) {
 			return ProductQuery{}, fmt.Errorf("invalid bestseller: %w", err)
 		}
 		query.Bestseller = &parsed
+	}
+
+	if inStockRaw := strings.TrimSpace(values.Get("inStock")); inStockRaw != "" {
+		parsed, err := parseBoolStrict(inStockRaw)
+		if err != nil {
+			return ProductQuery{}, fmt.Errorf("invalid inStock: %w", err)
+		}
+		query.InStock = &parsed
+	}
+	if onSaleRaw := strings.TrimSpace(values.Get("onSale")); onSaleRaw != "" {
+		parsed, err := parseBoolStrict(onSaleRaw)
+		if err != nil {
+			return ProductQuery{}, fmt.Errorf("invalid onSale: %w", err)
+		}
+		query.OnSale = &parsed
 	}
 
 	if minPriceRaw := strings.TrimSpace(values.Get("minPrice")); minPriceRaw != "" {
@@ -54,8 +98,26 @@ func ParseProductQuery(values url.Values) (ProductQuery, error) {
 		query.MaxPrice = &parsed
 	}
 
+	if minStockRaw := strings.TrimSpace(values.Get("minStock")); minStockRaw != "" {
+		parsed, err := parseNonNegativeInt(minStockRaw)
+		if err != nil {
+			return ProductQuery{}, fmt.Errorf("invalid minStock: %w", err)
+		}
+		query.MinStock = &parsed
+	}
+
 	if query.MinPrice != nil && query.MaxPrice != nil && *query.MinPrice > *query.MaxPrice {
 		return ProductQuery{}, fmt.Errorf("minPrice cannot be greater than maxPrice")
+	}
+
+	if sortRaw := strings.TrimSpace(values.Get("sort")); sortRaw != "" {
+		sortValue := strings.ToLower(sortRaw)
+		switch sortValue {
+		case "popularity":
+			query.Sort = sortValue
+		default:
+			return ProductQuery{}, fmt.Errorf("invalid sort: must be 'popularity'")
+		}
 	}
 
 	if limitRaw := strings.TrimSpace(values.Get("limit")); limitRaw != "" {
@@ -86,31 +148,40 @@ func ParseProductQuery(values url.Values) (ProductQuery, error) {
 	return query, nil
 }
 
-func parseColors(values url.Values) []string {
-	rawColors := values["color"]
-	if len(rawColors) == 0 {
+func parseTokenList(values url.Values, key string) []string {
+	rawValues := values[key]
+	if len(rawValues) == 0 {
 		return nil
 	}
 
-	seen := make(map[string]struct{}, len(rawColors))
-	colors := make([]string, 0, len(rawColors))
+	seen := make(map[string]struct{}, len(rawValues))
+	items := make([]string, 0, len(rawValues))
 
-	for _, raw := range rawColors {
+	for _, raw := range rawValues {
 		parts := strings.Split(raw, ",")
 		for _, part := range parts {
-			color := normalizeToken(part)
-			if color == "" {
+			item := normalizeToken(part)
+			if item == "" {
 				continue
 			}
-			if _, exists := seen[color]; exists {
+			if _, exists := seen[item]; exists {
 				continue
 			}
-			seen[color] = struct{}{}
-			colors = append(colors, color)
+			seen[item] = struct{}{}
+			items = append(items, item)
 		}
 	}
 
-	return colors
+	return items
+}
+
+func validateAllowedQueryParams(values url.Values) error {
+	for key := range values {
+		if _, ok := allowedQueryParams[key]; !ok {
+			return fmt.Errorf("unsupported query parameter %q", key)
+		}
+	}
+	return nil
 }
 
 func parseBoolStrict(raw string) (bool, error) {
@@ -128,6 +199,17 @@ func parseNonNegativeFloat(raw string) (float64, error) {
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return 0, fmt.Errorf("must be a number")
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("must be >= 0")
+	}
+	return value, nil
+}
+
+func parseNonNegativeInt(raw string) (int, error) {
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer")
 	}
 	if value < 0 {
 		return 0, fmt.Errorf("must be >= 0")

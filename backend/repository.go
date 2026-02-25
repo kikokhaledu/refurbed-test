@@ -12,9 +12,17 @@ type ProductSource interface {
 	LoadDetails(context.Context) ([]DetailsRecord, error)
 }
 
+type PopularitySource interface {
+	LoadPopularity(context.Context) ([]PopularityRecord, error)
+}
+
 type FileProductSource struct {
 	MetadataPath string
 	DetailsPath  string
+}
+
+type FilePopularitySource struct {
+	Path string
 }
 
 func (s FileProductSource) LoadMetadata(ctx context.Context) ([]MetadataRecord, error) {
@@ -23,6 +31,10 @@ func (s FileProductSource) LoadMetadata(ctx context.Context) ([]MetadataRecord, 
 
 func (s FileProductSource) LoadDetails(ctx context.Context) ([]DetailsRecord, error) {
 	return readJSONFile[DetailsRecord](ctx, s.DetailsPath)
+}
+
+func (s FilePopularitySource) LoadPopularity(ctx context.Context) ([]PopularityRecord, error) {
+	return readJSONFile[PopularityRecord](ctx, s.Path)
 }
 
 func readJSONFile[T any](ctx context.Context, path string) ([]T, error) {

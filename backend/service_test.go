@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -13,35 +14,92 @@ type fakeSource struct {
 	details  []DetailsRecord
 	err      error
 
-	metadataCalls int
-	detailsCalls  int
+	metadataStart chan struct{}
+	metadataGate  <-chan struct{}
+
+	mu                sync.Mutex
+	metadataStartOnce sync.Once
+	metadataCalls     int
+	detailsCalls      int
+}
+
+type fakePopularitySource struct {
+	records []PopularityRecord
+	err     error
 }
 
 func (f *fakeSource) LoadMetadata(_ context.Context) ([]MetadataRecord, error) {
+	f.mu.Lock()
+	start := f.metadataStart
+	gate := f.metadataGate
 	f.metadataCalls++
-	if f.err != nil {
-		return nil, f.err
+	err := f.err
+	metadata := append([]MetadataRecord(nil), f.metadata...)
+	f.mu.Unlock()
+
+	if start != nil {
+		f.metadataStartOnce.Do(func() { close(start) })
 	}
-	return append([]MetadataRecord(nil), f.metadata...), nil
+	if gate != nil {
+		<-gate
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return metadata, nil
 }
 
 func (f *fakeSource) LoadDetails(_ context.Context) ([]DetailsRecord, error) {
+	f.mu.Lock()
 	f.detailsCalls++
+	err := f.err
+	details := append([]DetailsRecord(nil), f.details...)
+	f.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return details, nil
+}
+
+func (f *fakeSource) callCounts() (metadataCalls int, detailsCalls int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.metadataCalls, f.detailsCalls
+}
+
+func (f *fakeSource) setErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakeSource) setMetadataBarrier(start chan struct{}, gate <-chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.metadataStart = start
+	f.metadataGate = gate
+	f.metadataStartOnce = sync.Once{}
+}
+
+func (f *fakePopularitySource) LoadPopularity(_ context.Context) ([]PopularityRecord, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return append([]DetailsRecord(nil), f.details...), nil
+	return append([]PopularityRecord(nil), f.records...), nil
 }
 
 func TestMergeProducts_BasicAndPriceCalculation(t *testing.T) {
 	metadata := []MetadataRecord{
-		{ID: "p1", Name: "Phone", BasePrice: 1000, ImageURL: "img"},
-		{ID: "p2", Name: "Watch", BasePrice: 200, ImageURL: "img2"},
+		{ID: "p1", Name: "Phone", BasePrice: 1000, ImageURL: "img", Category: " Smartphones ", Brand: " Apple "},
+		{ID: "p2", Name: "Watch", BasePrice: -200, ImageURL: "img2", Category: "Accessories", Brand: "Apple"},
 		{ID: "p3", Name: "NoDetails", BasePrice: 100},
 	}
 	details := []DetailsRecord{
-		{ID: "p1", DiscountPercent: 25, Bestseller: true, Colors: []string{"Blue", "blue", "RED"}, Stock: 10},
-		{ID: "p2", DiscountPercent: 0, Bestseller: false, Colors: []string{"black"}, Stock: -4},
+		{ID: "p1", DiscountPercent: 125, Bestseller: true, Colors: []string{"Blue", "blue", "RED"}, Stock: 10, Condition: " Refurbished "},
+		{ID: "p2", DiscountPercent: -8, Bestseller: false, Colors: []string{"black"}, Stock: -4, Condition: "Used"},
+		{ID: "p999", DiscountPercent: 10, Bestseller: false, Colors: []string{"gray"}},
 	}
 
 	got, err := mergeProducts(metadata, details)
@@ -53,14 +111,119 @@ func TestMergeProducts_BasicAndPriceCalculation(t *testing.T) {
 		t.Fatalf("expected 2 merged products, got %d", len(got))
 	}
 
-	if got[0].Price != 750 {
-		t.Fatalf("expected discounted price 750, got %v", got[0].Price)
+	if got[0].Price != 0 {
+		t.Fatalf("expected discounted price clamped to 0, got %v", got[0].Price)
 	}
 	if strings.Join(got[0].Colors, ",") != "blue,red" {
 		t.Fatalf("expected normalized colors [blue red], got %v", got[0].Colors)
 	}
+	if got[0].DiscountPercent != 100 {
+		t.Fatalf("expected discount percent clamped to 100, got %d", got[0].DiscountPercent)
+	}
+	if got[0].Category != "smartphones" {
+		t.Fatalf("expected normalized category smartphones, got %q", got[0].Category)
+	}
+	if got[0].Brand != "apple" {
+		t.Fatalf("expected normalized brand apple, got %q", got[0].Brand)
+	}
+	if got[0].Condition != "refurbished" {
+		t.Fatalf("expected normalized condition refurbished, got %q", got[0].Condition)
+	}
+	if got[1].Price != 0 {
+		t.Fatalf("expected negative base price to clamp to 0, got %v", got[1].Price)
+	}
+	if got[1].DiscountPercent != 0 {
+		t.Fatalf("expected negative discount to clamp to 0, got %d", got[1].DiscountPercent)
+	}
 	if got[1].Stock != 0 {
 		t.Fatalf("expected stock to be clamped to 0, got %d", got[1].Stock)
+	}
+	if got[1].Condition != "used" {
+		t.Fatalf("expected normalized condition used, got %q", got[1].Condition)
+	}
+}
+
+func TestMergeProducts_UsesStockByColorWhenProvided(t *testing.T) {
+	metadata := []MetadataRecord{
+		{ID: "p1", Name: "Phone", BasePrice: 200},
+	}
+	details := []DetailsRecord{
+		{
+			ID:              "p1",
+			DiscountPercent: 10,
+			Colors:          []string{"Blue", "Red"},
+			Stock:           999,
+			StockByColor: map[string]int{
+				"blue":  5,
+				" red ": -3,
+				"green": 2,
+			},
+		},
+	}
+
+	got, err := mergeProducts(metadata, details)
+	if err != nil {
+		t.Fatalf("mergeProducts() unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected one merged product, got %d", len(got))
+	}
+
+	product := got[0]
+	if product.Stock != 7 {
+		t.Fatalf("expected stock to be summed from stock_by_color (=7), got %d", product.Stock)
+	}
+	if product.StockByColor["blue"] != 5 {
+		t.Fatalf("expected blue stock=5, got %d", product.StockByColor["blue"])
+	}
+	if product.StockByColor["red"] != 0 {
+		t.Fatalf("expected red stock clamped to 0, got %d", product.StockByColor["red"])
+	}
+	if product.StockByColor["green"] != 2 {
+		t.Fatalf("expected green stock=2, got %d", product.StockByColor["green"])
+	}
+	if strings.Join(product.Colors, ",") != "blue,red,green" {
+		t.Fatalf("expected colors [blue red green], got %v", product.Colors)
+	}
+}
+
+func TestMergeProducts_UsesImageURLsByColorWhenProvided(t *testing.T) {
+	metadata := []MetadataRecord{
+		{ID: "p1", Name: "Phone", BasePrice: 200},
+	}
+	details := []DetailsRecord{
+		{
+			ID:     "p1",
+			Colors: []string{"Blue"},
+			ImageURLsByColor: map[string]string{
+				" blue ": " https://img-blue ",
+				"green":  "https://img-green",
+				"red":    "   ",
+				"":       "https://img-empty-color",
+			},
+		},
+	}
+
+	got, err := mergeProducts(metadata, details)
+	if err != nil {
+		t.Fatalf("mergeProducts() unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected one merged product, got %d", len(got))
+	}
+
+	product := got[0]
+	if strings.Join(product.Colors, ",") != "blue,green" {
+		t.Fatalf("expected colors [blue green], got %v", product.Colors)
+	}
+	if len(product.ImageURLsByColor) != 2 {
+		t.Fatalf("expected 2 valid image_urls_by_color entries, got %d", len(product.ImageURLsByColor))
+	}
+	if product.ImageURLsByColor["blue"] != "https://img-blue" {
+		t.Fatalf("expected normalized blue image URL, got %q", product.ImageURLsByColor["blue"])
+	}
+	if product.ImageURLsByColor["green"] != "https://img-green" {
+		t.Fatalf("expected normalized green image URL, got %q", product.ImageURLsByColor["green"])
 	}
 }
 
@@ -82,27 +245,53 @@ func TestMergeProducts_DuplicateIDs(t *testing.T) {
 	}
 }
 
+func TestMergeProducts_EmptyID(t *testing.T) {
+	_, err := mergeProducts(
+		[]MetadataRecord{{ID: "", Name: "bad"}},
+		[]DetailsRecord{{ID: "p1"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "metadata contains empty id") {
+		t.Fatalf("expected empty metadata id error, got %v", err)
+	}
+
+	_, err = mergeProducts(
+		[]MetadataRecord{{ID: "p1"}},
+		[]DetailsRecord{{ID: ""}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "details contains empty id") {
+		t.Fatalf("expected empty details id error, got %v", err)
+	}
+}
+
 func TestProductService_QueryProducts_FilterAndPagination(t *testing.T) {
 	source := &fakeSource{
 		metadata: []MetadataRecord{
-			{ID: "p1", Name: "iPhone 12", BasePrice: 400},
-			{ID: "p2", Name: "Galaxy S23", BasePrice: 500},
-			{ID: "p3", Name: "iPhone 13", BasePrice: 700},
+			{ID: "p1", Name: "iPhone 12", BasePrice: 400, Category: "smartphones"},
+			{ID: "p2", Name: "Galaxy S23", BasePrice: 500, Category: "smartphones"},
+			{ID: "p3", Name: "iPhone 13", BasePrice: 700, Category: "smartphones"},
 		},
 		details: []DetailsRecord{
-			{ID: "p1", DiscountPercent: 10, Bestseller: true, Colors: []string{"blue"}, Stock: 1},
-			{ID: "p2", DiscountPercent: 0, Bestseller: false, Colors: []string{"green"}, Stock: 1},
-			{ID: "p3", DiscountPercent: 20, Bestseller: true, Colors: []string{"red"}, Stock: 1},
+			{ID: "p1", DiscountPercent: 10, Bestseller: true, Colors: []string{"blue"}, Stock: 1, Condition: "refurbished"},
+			{ID: "p2", DiscountPercent: 0, Bestseller: false, Colors: []string{"green"}, Stock: 0, Condition: "used"},
+			{ID: "p3", DiscountPercent: 20, Bestseller: true, Colors: []string{"red"}, Stock: 1, Condition: "refurbished"},
 		},
 	}
 	service := NewProductService(source, 30*time.Second)
 
 	minPrice := 500.0
+	minStock := 1
 	limit := 1
+	inStock := true
+	onSale := true
 	response, err := service.QueryProducts(context.Background(), ProductQuery{
 		Search:     "iphone",
+		Categories: []string{"smartphones"},
+		Conditions: []string{"refurbished"},
 		Bestseller: boolPtr(true),
+		InStock:    &inStock,
+		OnSale:     &onSale,
 		MinPrice:   &minPrice,
+		MinStock:   &minStock,
 		Limit:      limit,
 		Offset:     0,
 	})
@@ -124,6 +313,168 @@ func TestProductService_QueryProducts_FilterAndPagination(t *testing.T) {
 	}
 }
 
+func TestProductService_InStockAndMinStockRespectColorFilter(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Phone A", BasePrice: 500},
+		},
+		details: []DetailsRecord{
+			{
+				ID:              "p1",
+				DiscountPercent: 0,
+				Colors:          []string{"blue", "red"},
+				Stock:           50,
+				StockByColor: map[string]int{
+					"blue": 0,
+					"red":  5,
+				},
+			},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	inStockTrue := true
+	blueInStockResponse, err := service.QueryProducts(context.Background(), ProductQuery{
+		Colors:  []string{"blue"},
+		InStock: &inStockTrue,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+	if blueInStockResponse.Total != 0 {
+		t.Fatalf("expected no products for blue+inStock=true, got total=%d", blueInStockResponse.Total)
+	}
+
+	inStockFalse := false
+	blueOutOfStockResponse, err := service.QueryProducts(context.Background(), ProductQuery{
+		Colors:  []string{"blue"},
+		InStock: &inStockFalse,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+	if blueOutOfStockResponse.Total != 1 {
+		t.Fatalf("expected one product for blue+inStock=false, got total=%d", blueOutOfStockResponse.Total)
+	}
+
+	minStock := 1
+	blueMinStockResponse, err := service.QueryProducts(context.Background(), ProductQuery{
+		Colors:   []string{"blue"},
+		MinStock: &minStock,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+	if blueMinStockResponse.Total != 0 {
+		t.Fatalf("expected no products for blue+minStock=1, got total=%d", blueMinStockResponse.Total)
+	}
+
+	redMinStockResponse, err := service.QueryProducts(context.Background(), ProductQuery{
+		Colors:   []string{"red"},
+		MinStock: &minStock,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+	if redMinStockResponse.Total != 1 {
+		t.Fatalf("expected one product for red+minStock=1, got total=%d", redMinStockResponse.Total)
+	}
+}
+
+func TestProductService_OnSaleAndStockFilters(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Phone A", BasePrice: 500},
+			{ID: "p2", Name: "Phone B", BasePrice: 500},
+			{ID: "p3", Name: "Phone C", BasePrice: 500},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 30, Stock: 2},
+			{ID: "p2", DiscountPercent: 0, Stock: 5},
+			{ID: "p3", DiscountPercent: 10, Stock: 10},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	onSale := false
+	minStock := 4
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		OnSale:   &onSale,
+		MinStock: &minStock,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 1 || len(response.Items) != 1 {
+		t.Fatalf("expected one filtered product, got total=%d items=%d", response.Total, len(response.Items))
+	}
+	if response.Items[0].ID != "p2" {
+		t.Fatalf("expected p2 to match onSale=false and minStock filter, got %s", response.Items[0].ID)
+	}
+}
+
+func TestProductService_PriceBoundsInclusive(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Product A", BasePrice: 100},
+			{ID: "p2", Name: "Product B", BasePrice: 200},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	minPrice := 100.0
+	maxPrice := 100.0
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		MinPrice: &minPrice,
+		MaxPrice: &maxPrice,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 1 || len(response.Items) != 1 {
+		t.Fatalf("expected exactly one product at price 100, got total=%d items=%d", response.Total, len(response.Items))
+	}
+	if response.Items[0].Price != 100 {
+		t.Fatalf("expected filtered item price 100, got %v", response.Items[0].Price)
+	}
+}
+
+func TestProductService_OffsetBeyondTotal_EchoesRequestedOffset(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{{ID: "p1", Name: "Phone", BasePrice: 100}},
+		details:  []DetailsRecord{{ID: "p1", DiscountPercent: 0}},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Limit:  10,
+		Offset: 999,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 1 {
+		t.Fatalf("expected total=1, got %d", response.Total)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("expected no items, got %d", len(response.Items))
+	}
+	if response.HasMore {
+		t.Fatalf("expected has_more=false")
+	}
+	if response.Offset != 999 {
+		t.Fatalf("expected echoed requested offset=999, got %d", response.Offset)
+	}
+}
+
 func TestProductService_CachesWithinTTL(t *testing.T) {
 	source := &fakeSource{
 		metadata: []MetadataRecord{{ID: "p1", Name: "Phone", BasePrice: 100}},
@@ -141,8 +492,9 @@ func TestProductService_CachesWithinTTL(t *testing.T) {
 		t.Fatalf("second query unexpected error: %v", err)
 	}
 
-	if source.metadataCalls != 1 || source.detailsCalls != 1 {
-		t.Fatalf("expected exactly one source load in TTL window, metadataCalls=%d detailsCalls=%d", source.metadataCalls, source.detailsCalls)
+	metadataCalls, detailsCalls := source.callCounts()
+	if metadataCalls != 1 || detailsCalls != 1 {
+		t.Fatalf("expected exactly one source load in TTL window, metadataCalls=%d detailsCalls=%d", metadataCalls, detailsCalls)
 	}
 }
 
@@ -164,8 +516,153 @@ func TestProductService_RefreshesAfterTTL(t *testing.T) {
 		t.Fatalf("second query unexpected error: %v", err)
 	}
 
-	if source.metadataCalls != 2 || source.detailsCalls != 2 {
-		t.Fatalf("expected cache refresh after TTL, metadataCalls=%d detailsCalls=%d", source.metadataCalls, source.detailsCalls)
+	metadataCalls, detailsCalls := source.callCounts()
+	if metadataCalls != 2 || detailsCalls != 2 {
+		t.Fatalf("expected cache refresh after TTL, metadataCalls=%d detailsCalls=%d", metadataCalls, detailsCalls)
+	}
+}
+
+func TestProductService_ServesStaleCacheOnRefreshFailure(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{{ID: "p1", Name: "Phone", BasePrice: 100}},
+		details:  []DetailsRecord{{ID: "p1", DiscountPercent: 10}},
+	}
+
+	now := time.Date(2026, 2, 24, 19, 0, 0, 0, time.UTC)
+	service := NewProductService(source, 30*time.Second)
+	service.now = func() time.Time { return now }
+
+	firstResponse, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("prime query unexpected error: %v", err)
+	}
+	if len(firstResponse.Items) != 1 {
+		t.Fatalf("expected one item in prime response, got %d", len(firstResponse.Items))
+	}
+
+	source.setErr(errors.New("source unavailable"))
+	now = now.Add(31 * time.Second)
+
+	staleResponse, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("expected stale fallback instead of error, got %v", err)
+	}
+	if len(staleResponse.Items) != 1 {
+		t.Fatalf("expected stale response to include one item, got %d", len(staleResponse.Items))
+	}
+	if staleResponse.Items[0].ID != firstResponse.Items[0].ID {
+		t.Fatalf("expected stale response item id %s, got %s", firstResponse.Items[0].ID, staleResponse.Items[0].ID)
+	}
+}
+
+func TestProductService_AvoidsCacheStampede(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{{ID: "p1", Name: "Phone", BasePrice: 100}},
+		details:  []DetailsRecord{{ID: "p1", DiscountPercent: 0}},
+	}
+
+	now := time.Date(2026, 2, 24, 19, 0, 0, 0, time.UTC)
+	service := NewProductService(source, 30*time.Second)
+	service.now = func() time.Time { return now }
+
+	if _, err := service.QueryProducts(context.Background(), ProductQuery{}); err != nil {
+		t.Fatalf("prime query unexpected error: %v", err)
+	}
+
+	now = now.Add(31 * time.Second)
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	source.setMetadataBarrier(refreshStarted, releaseRefresh)
+
+	refreshErr := make(chan error, 1)
+	go func() {
+		_, err := service.QueryProducts(context.Background(), ProductQuery{})
+		refreshErr <- err
+	}()
+
+	<-refreshStarted
+
+	const workers = 10
+	errCh := make(chan error, workers)
+	returned := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	var invokedWG sync.WaitGroup
+	startWorkers := make(chan struct{})
+
+	invokedWG.Add(workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			invokedWG.Done()
+			<-startWorkers
+			_, err := service.QueryProducts(context.Background(), ProductQuery{})
+			errCh <- err
+			returned <- struct{}{}
+		}()
+	}
+
+	invokedWG.Wait()
+	close(startWorkers)
+
+	metadataCalls, detailsCalls := source.callCounts()
+	if metadataCalls != 2 || detailsCalls != 1 {
+		t.Fatalf("expected one refresh in progress before release, metadataCalls=%d detailsCalls=%d", metadataCalls, detailsCalls)
+	}
+	select {
+	case <-returned:
+		t.Fatalf("worker returned before refresh gate was released")
+	default:
+	}
+
+	close(releaseRefresh)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent query unexpected error: %v", err)
+		}
+	}
+	if err := <-refreshErr; err != nil {
+		t.Fatalf("refresh query unexpected error: %v", err)
+	}
+
+	metadataCalls, detailsCalls = source.callCounts()
+	if metadataCalls != 2 || detailsCalls != 2 {
+		t.Fatalf("expected one refresh load after TTL despite concurrency, metadataCalls=%d detailsCalls=%d", metadataCalls, detailsCalls)
+	}
+}
+
+func TestProductService_WaitingRequestHonorsCancellation(t *testing.T) {
+	started := make(chan struct{})
+	releaseMetadata := make(chan struct{})
+	source := &fakeSource{
+		metadata: []MetadataRecord{{ID: "p1", Name: "Phone", BasePrice: 100}},
+		details:  []DetailsRecord{{ID: "p1", DiscountPercent: 0}},
+	}
+	source.setMetadataBarrier(started, releaseMetadata)
+	service := NewProductService(source, 30*time.Second)
+
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := service.QueryProducts(context.Background(), ProductQuery{})
+		firstErr <- err
+	}()
+
+	<-started
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := service.QueryProducts(ctx, ProductQuery{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected waiting request to honor context cancellation, got %v", err)
+	}
+
+	close(releaseMetadata)
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first query unexpected error: %v", err)
 	}
 }
 
@@ -200,6 +697,237 @@ func TestProductService_EmptyResultsReturnsEmptySlice(t *testing.T) {
 	}
 	if len(response.Items) != 0 {
 		t.Fatalf("expected 0 items, got %d", len(response.Items))
+	}
+}
+
+func TestProductService_AvailableColorsComeFromDataset(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Phone A", BasePrice: 100},
+			{ID: "p2", Name: "Phone B", BasePrice: 120},
+			{ID: "p3", Name: "Phone C", BasePrice: 140},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0, Colors: []string{"Blue", "red"}, Stock: 5},
+			{ID: "p2", DiscountPercent: 10, Colors: []string{"green", "blue"}, Stock: 3},
+			{ID: "p3", DiscountPercent: 10, Colors: []string{"  red  ", ""}, Stock: 1},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Colors: []string{"red"},
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	want := []string{"blue", "green", "red"}
+	if strings.Join(response.AvailableColors, ",") != strings.Join(want, ",") {
+		t.Fatalf("expected available colors %v, got %v", want, response.AvailableColors)
+	}
+}
+
+func TestProductService_AvailableColorsExcludeOutOfStockColors(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Phone A", BasePrice: 100},
+			{ID: "p2", Name: "Phone B", BasePrice: 120},
+		},
+		details: []DetailsRecord{
+			{
+				ID:     "p1",
+				Colors: []string{"blue", "red"},
+				StockByColor: map[string]int{
+					"blue": 4,
+					"red":  0,
+				},
+			},
+			{
+				ID:     "p2",
+				Colors: []string{"red"},
+				StockByColor: map[string]int{
+					"red": 0,
+				},
+			},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	want := []string{"blue"}
+	if strings.Join(response.AvailableColors, ",") != strings.Join(want, ",") {
+		t.Fatalf("expected available colors %v, got %v", want, response.AvailableColors)
+	}
+}
+
+func TestProductService_PriceBoundsComeFromDataset(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "A", BasePrice: 100},
+			{ID: "p2", Name: "B", BasePrice: 200},
+			{ID: "p3", Name: "C", BasePrice: 300},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 50},
+			{ID: "p3", DiscountPercent: 10},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Search: "A",
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 1 {
+		t.Fatalf("expected filtered total=1, got %d", response.Total)
+	}
+	if response.PriceMin != 100 {
+		t.Fatalf("expected price_min=100 from full dataset, got %v", response.PriceMin)
+	}
+	if response.PriceMax != 270 {
+		t.Fatalf("expected price_max=270 from full dataset, got %v", response.PriceMax)
+	}
+}
+
+func TestProductService_SortByPopularity(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Alpha", BasePrice: 100},
+			{ID: "p2", Name: "Bravo", BasePrice: 100},
+			{ID: "p3", Name: "Charlie", BasePrice: 100},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+			{ID: "p3", DiscountPercent: 0},
+		},
+	}
+	popularity := &fakePopularitySource{
+		records: []PopularityRecord{
+			{ID: "p3", Rank: 1},
+			{ID: "p1", Rank: 2},
+		},
+	}
+	service := NewProductService(source, 30*time.Second).WithPopularitySource(popularity)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "popularity"})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+	if len(response.Items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(response.Items))
+	}
+	if response.Items[0].ID != "p3" || response.Items[1].ID != "p1" || response.Items[2].ID != "p2" {
+		t.Fatalf("expected popularity order [p3 p1 p2], got [%s %s %s]", response.Items[0].ID, response.Items[1].ID, response.Items[2].ID)
+	}
+	if response.Items[0].PopularityRank != 1 || response.Items[1].PopularityRank != 2 {
+		t.Fatalf("expected popularity ranks [1 2 ...], got [%d %d ...]", response.Items[0].PopularityRank, response.Items[1].PopularityRank)
+	}
+}
+
+func TestProductService_PopularitySourceFailureDoesNotFailQuery(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Alpha", BasePrice: 100},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+		},
+	}
+	popularity := &fakePopularitySource{err: errors.New("boom")}
+	service := NewProductService(source, 30*time.Second).WithPopularitySource(popularity)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "popularity"})
+	if err != nil {
+		t.Fatalf("expected query to succeed even when popularity source fails, got %v", err)
+	}
+	if response.Total != 1 || len(response.Items) != 1 {
+		t.Fatalf("expected one item, got total=%d items=%d", response.Total, len(response.Items))
+	}
+	if response.Items[0].PopularityRank != 0 {
+		t.Fatalf("expected popularity rank to fallback to 0, got %d", response.Items[0].PopularityRank)
+	}
+}
+
+func TestProductService_PriceBoundsPreservedWhenFilteredResultIsEmpty(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Alpha", BasePrice: 100},
+			{ID: "p2", Name: "Bravo", BasePrice: 250},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 10},
+			{ID: "p2", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Search: "does-not-exist",
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 0 {
+		t.Fatalf("expected filtered total=0, got %d", response.Total)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(response.Items))
+	}
+	if response.PriceMin != 90 {
+		t.Fatalf("expected price_min=90 from full dataset, got %v", response.PriceMin)
+	}
+	if response.PriceMax != 250 {
+		t.Fatalf("expected price_max=250 from full dataset, got %v", response.PriceMax)
+	}
+}
+
+func TestProductService_PriceBoundsZeroWhenNoMergedProducts(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "meta-only", Name: "Only Metadata", BasePrice: 123},
+		},
+		details: []DetailsRecord{
+			{ID: "details-only", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 0 {
+		t.Fatalf("expected total=0, got %d", response.Total)
+	}
+	if response.PriceMin != 0 {
+		t.Fatalf("expected price_min=0 when no merged products, got %v", response.PriceMin)
+	}
+	if response.PriceMax != 0 {
+		t.Fatalf("expected price_max=0 when no merged products, got %v", response.PriceMax)
+	}
+}
+
+func TestDiscountedPriceCents_RoundsAtCentPrecision(t *testing.T) {
+	if got := discountedPriceCents(0.01, 50); got != 1 {
+		t.Fatalf("expected 1 cent, got %d", got)
+	}
+	if got := discountedPriceCents(199.99, 25); got != 14999 {
+		t.Fatalf("expected 14999 cents, got %d", got)
+	}
+	if got := discountedPriceCents(414.99, 25); got != 31124 {
+		t.Fatalf("expected 31124 cents, got %d", got)
 	}
 }
 
