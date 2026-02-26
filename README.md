@@ -1,13 +1,13 @@
 # Refurbed Engineering - Senior Fullstack Assignment
 
-This repository contains the backend plus both frontend tracks for the assignment.
+This repository contains the backend plus the vue/tailwind frontend  for the assignment.
 
 ## Environment Configuration
 - Default config lives in [.env.example](./.env.example).
 - `make` commands automatically use:
 1. `.env` (if present), otherwise
 2. `.env.example`.
-- This keeps one config model across backend, frontend, Docker Compose, and Playwright E2E.
+- This keeps one config model across backend, frontend, Docker Compose, and Playwright E2E (in prod we might want to change that so e2e uses diffrent values).
 - Keep `VITE_API_BASE_URL` empty for same-host deployments so frontend derives backend URL from host + `VITE_BACKEND_PORT`.
 - In Compose, `VITE_BACKEND_PORT` falls back to `BACKEND_PORT` (single source for backend port).
 - Playwright uses dedicated local ports by default (`PW_BACKEND_PORT=18080`, `PW_FRONTEND_PORT=4173`) to avoid conflicts when `make up` is already running.
@@ -28,7 +28,7 @@ cp .env.example .env
 
 ## Repository Layout
 - `backend/` - Go API (`GET /products`, caching, filtering, load-more pagination).
-- `assignment_vue/frontend-vue/` - Vue + Tailwind frontend implementation (selected track).
+- `assignment_vue/frontend-vue/` - Vue + Tailwind frontend implementation.
 
 ## Quick Start (Backend Only)
 ```bash
@@ -86,7 +86,7 @@ make e2e-install
 make pre-push
 ```
 
-`make up` now starts both backend and Vue frontend.
+`make up`  starts both backend and Vue frontend.
 
 `make pre-push` runs:
 - `make fmt-check`
@@ -98,7 +98,7 @@ make pre-push
 - `make test-e2e`
 - `make compose-check`
 
-`make pre-push` is check-only (non-mutating); it validates formatting via `make fmt-check`.
+`make pre-push` is check-only i like to do that helps in dev env.
 
 Note: `make test-e2e` runs `make e2e-install` first, so first-time machines auto-install Playwright Chromium.
 Note: E2E web servers are isolated from Compose default ports, so `make pre-push` can run even if `make up` is active.
@@ -110,7 +110,7 @@ Note: E2E web servers are isolated from Compose default ports, so `make pre-push
 - Introduce a search service (Elasticsearch/OpenSearch/Solr) only when catalog size and product discovery complexity justify it (fuzzy matching, relevance ranking, faceting, typo tolerance).
 - Add authentication/rate limiting where required, plus stricter CORS policy per environment.
 - Move from basic standard-library logging to structured, leveled production logging (for example `slog`/`zap`) with request/trace correlation IDs and JSON output.
-- Add end-to-end monitoring stack: structured logs, metrics dashboards, alerting, and distributed tracing.
+- Add end-to-end monitoring stack: structured logs, metrics dashboards, alerting, and distributed tracing telemetry.
 - Extend CI quality gates with race tests in Linux CI runner, coverage threshold enforcement, and artifact/image scanning.
 - Expand SEO beyond the current baseline with canonical URLs per route/state, structured data (JSON-LD), richer OpenGraph/Twitter tags, and prerender/SSR if crawlability becomes a requirement.
 
@@ -127,21 +127,20 @@ Note: E2E web servers are isolated from Compose default ports, so `make pre-push
 - Sort dropdown interaction is staged: users can choose multiple sort options in one open menu session with no per-click reload, then a single refresh occurs when the menu closes.
 - Sort edge-case behavior is documented and tested: UI URL normalization keeps one effective price direction, and backend API rejects contradictory price directions if both are sent.
 - Applied state changes are written with browser-history entries (`pushState`) so back/forward navigation restores previous filter states.
-- Invalid URL price params now degrade safely (`minPrice`/`maxPrice` sanitize to defaults instead of hard-failing initial load).
+- Invalid URL price params  degrade safely (`minPrice`/`maxPrice` sanitize to defaults instead of hard-failing initial load).
 - Filter panel actions are position-aware: top controls are used when visible, and a sticky bottom action bar appears after scrolling past them (including unapplied-changes warning).
 - Active filter chips support per-filter removal and clear-all behavior.
 - Price range slider bounds are sourced from backend dataset-level price bounds (`price_min`/`price_max`) instead of static UI constants.
-- Mobile filter UX now uses an accessible modal flow (focus trap, `Esc` close, body scroll lock).
+- Mobile filter UX  uses an accessible modal flow (focus trap, `Esc` close, body scroll lock).
 - Product cards use explicit color-to-image mapping (`image_urls_by_color`) with fallback placeholder handling for broken image URLs.
 - Frontend includes a minimal SEO baseline (`title`, `meta description`, basic OpenGraph tags) in the HTML shell.
 - Query parsing is strict (allowlist + explicit validation + singleton-param repetition/empty-value rejection) to fail fast on malformed inputs.
 - Price calculation uses cent-based arithmetic internally to reduce floating-point drift.
 - Documented backend tradeoffs: refresh work is detached from request cancellation and stale cache can be served on refresh failure to prioritize availability.
-- Source JSON ingestion currently tolerates missing/`null` scalar fields via zero-value defaults (assignment pragmatism), while type mismatches still fail decoding; for production this should be backed by stricter schema validation and data-quality alerting.
+- Source JSON ingestion currently tolerates missing/`null` scalar fields via zero-value defaults (assignment pragmatism), while type mismatches still fail decoding for production this should be backed by stricter schema validation and data-quality alerting.
 - Dev ergonomics are supported with Docker Compose + Makefile commands for consistent local setup.
 
 ## Final Thoughts
 - Current implementation intentionally prioritizes clarity, correctness, and testability over premature complexity.
 - For this assignment scope, in-memory filtering and caching are sufficient and avoid overengineering.
 - SEO is intentionally baseline-level for this challenge; the production path is documented above.
-- This README section is a living summary and can be extended as frontend implementation and final integration notes are completed.

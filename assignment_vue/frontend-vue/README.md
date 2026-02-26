@@ -1,6 +1,6 @@
 # Frontend - Vue 3 + Tailwind CSS
 
-This is the primary implemented frontend track for this repository.
+This is the primary implemented frontend for this repository.
 
 ## Prerequisites
 - Node.js 18+
@@ -85,26 +85,17 @@ E2E coverage matrix:
 - [PLAYWRIGHT_E2E_MATRIX.md](./PLAYWRIGHT_E2E_MATRIX.md)
 - [UNIT_TEST_MATRIX.md](./UNIT_TEST_MATRIX.md)
 - Current automated run status is tracked in the `Automation Status (Current)` section.
-- E2E coverage includes sort+filter combination flows, conflicting URL sort-param normalization (`sort=price_asc&sort=price_desc`), and integer point-price bucket behavior for `minPrice=n&maxPrice=n`.
 
-Current unit coverage includes:
-- `FiltersPanel` dual-range clamp behavior, floor/ceiling initialization and re-sync behavior, and sticky bottom action controls visibility.
-- `FiltersPanel` brand filter toggle emission (`update:selectedBrands`) for checkbox-driven brand selection.
-- `ProductCard` out-of-stock color hiding, color-based image switching, and image fallback behavior.
-- `SortSelect` multi-select sort emission and contradictory price-sort auto-uncheck behavior.
-- `ActiveFilterChips` chip removal and clear-all interactions.
-- URL parser sanitization for invalid `minPrice`/`maxPrice` values (`productQueryState` utility tests).
 
 ## Tech Stack
-- Vue 3 (`<script setup>`, Composition API)
-- Vite
+- Vue 3
 - Tailwind CSS
 - Vitest + Vue Test Utils (unit tests)
 - Playwright (E2E tests: desktop + mobile Chromium)
 
 ## Implemented UI Features
 - Debounced search auto-apply (500ms after typing stops).
-- Draft-vs-applied filtering for non-search controls (`Apply` button inside filter panel), with `Reset` acting as an immediate clear+apply action.
+- Draft-vs-applied filtering for non-search controls (`Apply` button inside filter panel), with `Reset` acting as an immediate clear+apply action so we reduce queries.
 - Filters panel actions are position-aware: action controls stay at the top when visible, and switch to a sticky bottom action bar (with unapplied-changes warning) when the top controls scroll out of view.
 - URL sync for applied query state (`search`, `category`, `brand`, `color`, `condition`, `bestseller`, `onSale`, `inStock`, `sort`, `minPrice`, `maxPrice`, `offset`).
 - Applied URL state uses browser history entries so back/forward navigation restores prior results and filter selections.
@@ -131,3 +122,6 @@ Current unit coverage includes:
 ## Production Notes (SEO)
 - Current SEO setup is intentionally minimal for assignment scope.
 - For production, add canonical URL strategy, structured data (JSON-LD), richer OG/Twitter tags, and consider SSR/prerender for crawler-friendly content.
+
+## Note 
+- images might not match the colors  since it was just for dev 
