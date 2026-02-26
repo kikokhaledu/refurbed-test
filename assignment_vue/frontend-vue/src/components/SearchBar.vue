@@ -18,6 +18,7 @@
       </svg>
       <input
         id="product-search"
+        data-testid="search-input"
         :value="modelValue"
         :disabled="disabled"
         type="search"

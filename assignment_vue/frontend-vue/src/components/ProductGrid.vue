@@ -1,9 +1,10 @@
 <template>
-  <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+  <section data-testid="product-grid" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
     <template v-if="loading">
       <article
         v-for="skeleton in skeletonCount"
         :key="`skeleton-${skeleton}`"
+        data-testid="product-skeleton"
         class="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
         aria-hidden="true"
       >

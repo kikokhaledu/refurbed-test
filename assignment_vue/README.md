@@ -31,10 +31,14 @@ From repository root:
 make up
 ```
 
+Compose configuration is read from `.env` (if present) or `.env.example` (fallback).
+
 ## URLs
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8080`
 
 ## Related Docs
 - Vue frontend details: [frontend-vue/README.md](./frontend-vue/README.md)
+- Vue frontend E2E matrix: [frontend-vue/PLAYWRIGHT_E2E_MATRIX.md](./frontend-vue/PLAYWRIGHT_E2E_MATRIX.md)
+- Vue frontend unit matrix: [frontend-vue/UNIT_TEST_MATRIX.md](./frontend-vue/UNIT_TEST_MATRIX.md)
 - Backend details: [../backend/README.md](../backend/README.md)

@@ -45,7 +45,7 @@
     "base_price": 1499.99,
     "image_url": "https://files.refurbed.com/pi/apple-imac-4k-2017-21-5-1547454540.jpg?h=600&t=fitdesign&w=800",
     "category": "desktops",
-    "brand": "apple"
+    "brand": "samsung"
   },
   {
     "id": "p7",
@@ -53,7 +53,7 @@
     "base_price": 699.99,
     "image_url": "https://files.refurbed.com/pi/apple-mac-mini-2024-m4-1730354433.jpg?h=600&t=fitdesign&w=800",
     "category": "desktops",
-    "brand": "apple"
+    "brand": "google"
   },
   {
     "id": "p8",
@@ -61,6 +61,6 @@
     "base_price": 99.99,
     "image_url": "https://files.refurbed.com/ii/apple-homepod-mini-1661342310.jpg?h=600&t=fitdesign&w=800",
     "category": "accessories",
-    "brand": "apple"
+    "brand": "xiaomi"
   }
 ]

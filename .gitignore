@@ -23,7 +23,10 @@ bin/
 *.test
 *.out
 coverage.out
+dev_out.log
+dev_err.log
 
 # Env / secrets
 .env
 .env.*
+!.env.example

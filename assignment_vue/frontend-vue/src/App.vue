@@ -1,5 +1,5 @@
 <template>
-  <main class="min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+  <main data-testid="app-root" class="min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
     <div class="mx-auto max-w-[1320px] px-4 py-8 sm:px-6 lg:px-8">
       <header class="space-y-4">
         <div class="flex items-center justify-between gap-4">
@@ -9,6 +9,7 @@
             <button
               type="button"
               role="switch"
+              data-testid="theme-toggle"
               :aria-checked="isDarkMode ? 'true' : 'false'"
               class="relative h-7 w-14 overflow-hidden rounded-full border border-slate-300 bg-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-900"
               :class="isDarkMode ? 'bg-slate-800' : 'bg-white'"
@@ -34,6 +35,7 @@
         <aside class="hidden lg:block">
           <FiltersPanel
             :selected-categories="draftFilters.categories"
+            :selected-brands="draftFilters.brands"
             :selected-colors="draftFilters.colors"
             :selected-conditions="draftFilters.conditions"
             :bestseller="draftFilters.bestseller"
@@ -44,6 +46,7 @@
             :price-floor="priceFloor"
             :price-ceiling="priceCeiling"
             :category-options="categoryOptions"
+            :brand-options="brandOptions"
             :color-options="colorOptions"
             :condition-options="conditionOptions"
             :validation-message="filterValidationMessage"
@@ -51,6 +54,7 @@
             :apply-disabled="isApplyDisabled"
             :disabled="isLoading"
             @update:selected-categories="handleCategoriesUpdate"
+            @update:selected-brands="handleBrandsUpdate"
             @update:selected-colors="handleColorsUpdate"
             @update:selected-conditions="handleConditionsUpdate"
             @update:bestseller="handleBestsellerUpdate"
@@ -63,9 +67,9 @@
           />
         </aside>
 
-        <section aria-live="polite" :aria-busy="isLoading ? 'true' : 'false'">
+        <section data-testid="results-section" aria-live="polite" :aria-busy="isLoading ? 'true' : 'false'">
           <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p class="text-3xl font-semibold tracking-tight text-slate-600 dark:text-slate-300">
+            <p data-testid="products-count" class="text-3xl font-semibold tracking-tight text-slate-600 dark:text-slate-300">
               {{ total }} products found
             </p>
             <SortSelect
@@ -83,12 +87,14 @@
 
           <div
             v-if="inlineErrorMessage"
+            data-testid="inline-error-state"
             class="mb-4 flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300"
             role="alert"
           >
             <span>{{ inlineErrorMessage }}</span>
             <button
               type="button"
+              data-testid="inline-retry-button"
               class="rounded-md border border-rose-300 bg-white px-3 py-1 font-medium text-rose-700 transition hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:border-rose-700 dark:bg-rose-900 dark:text-rose-100 dark:hover:bg-rose-800"
               @click="retryFailedRequest"
             >
@@ -98,6 +104,7 @@
 
           <section
             v-if="showFatalErrorState"
+            data-testid="fatal-error-state"
             class="grid min-h-[360px] place-items-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900"
             aria-label="Error state"
           >
@@ -106,6 +113,7 @@
               <p class="mt-2 text-slate-500 dark:text-slate-400">{{ errorMessage }}</p>
               <button
                 type="button"
+                data-testid="fatal-retry-button"
                 class="mt-5 rounded-xl border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 @click="retryFailedRequest"
               >
@@ -116,6 +124,7 @@
 
           <section
             v-else-if="showEmptyState"
+            data-testid="empty-state"
             class="grid min-h-[360px] place-items-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900"
             aria-label="Empty state"
           >
@@ -126,6 +135,7 @@
               </p>
               <button
                 type="button"
+                data-testid="empty-clear-filters-button"
                 class="mt-5 rounded-xl border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 @click="clearFiltersAndApply"
               >
@@ -153,12 +163,14 @@
       <div
         v-if="isMobileFiltersOpen"
         id="filters-modal"
+        data-testid="mobile-filters-modal"
         class="fixed inset-0 z-50 lg:hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="filters-modal-title"
       >
         <div
+          data-testid="mobile-filters-backdrop"
           class="absolute inset-0 bg-slate-950/45"
           @click="closeMobileFilters"
         ></div>
@@ -175,6 +187,7 @@
               <button
                 ref="mobileFiltersCloseButtonRef"
                 type="button"
+                data-testid="mobile-filters-close"
                 class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 @click="closeMobileFilters"
               >
@@ -184,6 +197,7 @@
 
             <FiltersPanel
               :selected-categories="draftFilters.categories"
+              :selected-brands="draftFilters.brands"
               :selected-colors="draftFilters.colors"
               :selected-conditions="draftFilters.conditions"
               :bestseller="draftFilters.bestseller"
@@ -194,6 +208,7 @@
               :price-floor="priceFloor"
               :price-ceiling="priceCeiling"
               :category-options="categoryOptions"
+              :brand-options="brandOptions"
               :color-options="colorOptions"
               :condition-options="conditionOptions"
               :validation-message="filterValidationMessage"
@@ -201,6 +216,7 @@
               :apply-disabled="isApplyDisabled"
               :disabled="isLoading"
               @update:selected-categories="handleCategoriesUpdate"
+              @update:selected-brands="handleBrandsUpdate"
               @update:selected-colors="handleColorsUpdate"
               @update:selected-conditions="handleConditionsUpdate"
               @update:bestseller="handleBestsellerUpdate"
@@ -220,6 +236,7 @@
       <button
         ref="mobileFiltersTriggerRef"
         type="button"
+        data-testid="mobile-filters-trigger"
         class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
         :aria-expanded="isMobileFiltersOpen ? 'true' : 'false'"
         aria-controls="filters-modal"
@@ -230,6 +247,7 @@
       <button
         v-if="showScrollTopButton"
         type="button"
+        data-testid="mobile-scroll-top"
         class="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-lg transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
         @click="scrollToTop"
       >
@@ -240,48 +258,83 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ActiveFilterChips from './components/ActiveFilterChips.vue'
 import FiltersPanel from './components/FiltersPanel.vue'
 import LoadMoreButton from './components/LoadMoreButton.vue'
 import ProductGrid from './components/ProductGrid.vue'
 import SearchBar from './components/SearchBar.vue'
 import SortSelect from './components/SortSelect.vue'
+import { useMobileFilterDialog } from './composables/useMobileFilterDialog'
 import { useTheme } from './composables/useTheme'
+import {
+  CATEGORY_OPTIONS,
+  CONDITION_OPTIONS,
+  DEFAULT_BACKEND_PORT,
+  MOBILE_SCROLL_TOP_THRESHOLD,
+  PAGE_SIZE,
+  SEARCH_DEBOUNCE_MS,
+  THEME_STORAGE_KEY,
+} from './constants/app'
+import {
+  areFilterStatesEqual,
+  assignFilterState,
+  buildFilterValidationMessage,
+  createDefaultFilters,
+  formatTokenLabel,
+  normalizeBestsellerValue,
+  normalizeFilterState,
+  normalizeInStockValue,
+  normalizeOnSaleValue,
+  normalizeTokenList,
+  sortLabel,
+} from './utils/filterState'
+import { buildURLSearchParams, parseOffset, parseURLState as parseURLStateFromSearch } from './utils/productQueryState'
+import { normalizeSortValue } from './utils/sort'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
-const pageSize = 6
-const searchDebounceMs = 500
+function parsePositiveInt(rawValue, fallback) {
+  const parsed = Number.parseInt(String(rawValue ?? ''), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+  return parsed
+}
+
+function buildFallbackApiBaseUrl(port) {
+  if (typeof window === 'undefined') {
+    return `http://localhost:${port}`
+  }
+
+  const url = new URL(window.location.origin)
+  url.port = String(port)
+  return url.origin
+}
+
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').trim()
+const fallbackBackendPort = parsePositiveInt(import.meta.env.VITE_BACKEND_PORT, DEFAULT_BACKEND_PORT)
+const fallbackApiBaseUrl = buildFallbackApiBaseUrl(fallbackBackendPort)
+const apiBaseUrl = configuredApiBaseUrl || fallbackApiBaseUrl
+
+const pageSize = PAGE_SIZE
+const searchDebounceMs = SEARCH_DEBOUNCE_MS
+const categoryOptions = CATEGORY_OPTIONS
+const conditionOptions = CONDITION_OPTIONS
 
 const colorOptions = ref([])
+const brandOptions = ref([])
 const priceFloor = ref(0)
 const priceCeiling = ref(0)
 
-const categoryOptions = ['smartphones', 'tablets', 'laptops', 'desktops', 'accessories']
-const conditionOptions = ['new', 'refurbished', 'used']
+const {
+  isMobileFiltersOpen,
+  mobileFiltersDialogRef,
+  mobileFiltersCloseButtonRef,
+  mobileFiltersTriggerRef,
+  closeMobileFilters,
+  toggleMobileFilters,
+} = useMobileFilterDialog()
 
-const mobileFiltersDialogRef = ref(null)
-const mobileFiltersCloseButtonRef = ref(null)
-const mobileFiltersTriggerRef = ref(null)
-let previouslyFocusedElement = null
-let previousBodyOverflow = ''
-
-const { isDarkMode, initializeTheme, toggleDarkMode } = useTheme('refurbed-theme')
-
-function createDefaultFilters() {
-  return {
-    search: '',
-    categories: [],
-    colors: [],
-    conditions: [],
-    bestseller: 'all',
-    onSale: 'all',
-    inStock: 'all',
-    sort: '',
-    minPrice: '',
-    maxPrice: '',
-  }
-}
+const { isDarkMode, initializeTheme, toggleDarkMode } = useTheme(THEME_STORAGE_KEY)
 
 const draftFilters = reactive(createDefaultFilters())
 const appliedFilters = reactive(createDefaultFilters())
@@ -295,7 +348,6 @@ const isLoading = ref(false)
 const isLoadingMore = ref(false)
 const errorMessage = ref('')
 const lastFailedRequest = ref('reload')
-const isMobileFiltersOpen = ref(false)
 const showScrollTopButton = ref(false)
 
 let activeController = null
@@ -348,6 +400,15 @@ const activeFilterChips = computed(() => {
     })
   }
 
+  for (const brand of normalized.brands) {
+    chips.push({
+      id: `brand:${brand}`,
+      field: 'brands',
+      value: brand,
+      label: `Brand: ${formatTokenLabel(brand)}`,
+    })
+  }
+
   for (const color of normalized.colors) {
     chips.push({
       id: `color:${color}`,
@@ -386,8 +447,8 @@ const activeFilterChips = computed(() => {
     chips.push({ id: 'maxPrice', field: 'maxPrice', label: `Max price: EUR ${normalized.maxPrice}` })
   }
 
-  if (normalized.sort === 'popularity') {
-    chips.push({ id: 'sort', field: 'sort', label: 'Sort: Popularity' })
+  if (normalized.sort) {
+    chips.push({ id: 'sort', field: 'sort', label: `Sort: ${sortLabel(normalized.sort)}` })
   }
 
   return chips
@@ -396,6 +457,10 @@ const activeFilterChips = computed(() => {
 watch(
   [total, isLoading],
   () => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
     if (isLoading.value) {
       document.title = 'Loading products...'
       return
@@ -405,269 +470,47 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => isMobileFiltersOpen.value,
-  async (isOpen) => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') {
-      return
-    }
-
-    if (isOpen) {
-      previouslyFocusedElement =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null
-      previousBodyOverflow = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
-      window.addEventListener('keydown', handleMobileDialogKeydown)
-      await nextTick()
-      focusMobileDialog()
-      return
-    }
-
-    document.body.style.overflow = previousBodyOverflow
-    window.removeEventListener('keydown', handleMobileDialogKeydown)
-    await nextTick()
-
-    if (mobileFiltersTriggerRef.value instanceof HTMLElement) {
-      mobileFiltersTriggerRef.value.focus()
-    } else if (previouslyFocusedElement instanceof HTMLElement) {
-      previouslyFocusedElement.focus()
-    }
-  },
-)
-
-function parsePrice(rawValue) {
-  const normalized = String(rawValue ?? '').trim()
-  if (!normalized) {
-    return null
-  }
-
-  const parsed = Number.parseFloat(normalized)
-  if (Number.isNaN(parsed)) {
-    return Number.NaN
-  }
-
-  return parsed
-}
-
-function normalizeBestsellerValue(rawValue) {
-  return rawValue === 'true' ? 'true' : 'all'
-}
-
-function normalizeOnSaleValue(rawValue) {
-  return rawValue === 'true' ? 'true' : 'all'
-}
-
-function normalizeInStockValue(rawValue) {
-  return rawValue === 'true' ? 'true' : 'all'
-}
-
-function normalizeSortValue(rawValue) {
-  return rawValue === 'popularity' ? 'popularity' : ''
-}
-
-function normalizeTokenList(values) {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => value.toLowerCase().trim())
-        .filter(Boolean),
-    ),
-  ).sort()
-}
-
-function normalizeFilterState(source) {
-  return {
-    search: String(source.search ?? '').trim(),
-    categories: normalizeTokenList(source.categories ?? []),
-    colors: normalizeTokenList(source.colors ?? []),
-    conditions: normalizeTokenList(source.conditions ?? []),
-    bestseller: normalizeBestsellerValue(source.bestseller),
-    onSale: normalizeOnSaleValue(source.onSale),
-    inStock: normalizeInStockValue(source.inStock),
-    sort: normalizeSortValue(source.sort),
-    minPrice: String(source.minPrice ?? '').trim(),
-    maxPrice: String(source.maxPrice ?? '').trim(),
-  }
-}
-
-function assignFilterState(target, source) {
-  target.search = source.search
-  target.categories = [...source.categories]
-  target.colors = [...source.colors]
-  target.conditions = [...source.conditions]
-  target.bestseller = source.bestseller
-  target.onSale = source.onSale
-  target.inStock = source.inStock
-  target.sort = source.sort
-  target.minPrice = source.minPrice
-  target.maxPrice = source.maxPrice
-}
-
-function areFilterStatesEqual(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
-function buildFilterValidationMessage(source) {
-  const min = parsePrice(source.minPrice)
-  const max = parsePrice(source.maxPrice)
-
-  if (Number.isNaN(min)) {
-    return 'Minimum price must be a valid number.'
-  }
-  if (Number.isNaN(max)) {
-    return 'Maximum price must be a valid number.'
-  }
-  if (min !== null && min < 0) {
-    return 'Minimum price must be greater than or equal to 0.'
-  }
-  if (max !== null && max < 0) {
-    return 'Maximum price must be greater than or equal to 0.'
-  }
-  if (min !== null && max !== null && min > max) {
-    return 'Minimum price cannot be greater than maximum price.'
-  }
-
-  return ''
-}
-
-function parseParamList(params, key) {
-  return normalizeTokenList(
-    params
-      .getAll(key)
-      .flatMap((value) => value.split(','))
-      .map((value) => value.toLowerCase().trim())
-      .filter(Boolean),
-  )
-}
-
-function parseOffset(rawValue) {
-  const parsed = Number.parseInt(rawValue ?? '', 10)
-  if (Number.isNaN(parsed) || parsed < 0) {
-    return 0
-  }
-
-  return Math.floor(parsed / pageSize) * pageSize
-}
-
 function parseURLState() {
-  const params = new URLSearchParams(window.location.search)
-  const nextFilters = createDefaultFilters()
-
-  nextFilters.search = params.get('search')?.trim() ?? ''
-  nextFilters.categories = parseParamList(params, 'category')
-  nextFilters.colors = parseParamList(params, 'color')
-  nextFilters.conditions = parseParamList(params, 'condition')
-  nextFilters.bestseller = normalizeBestsellerValue(params.get('bestseller'))
-  nextFilters.onSale = normalizeOnSaleValue(params.get('onSale'))
-  nextFilters.inStock = normalizeInStockValue(params.get('inStock'))
-  nextFilters.sort = normalizeSortValue(params.get('sort'))
-  nextFilters.minPrice = params.get('minPrice')?.trim() ?? ''
-  nextFilters.maxPrice = params.get('maxPrice')?.trim() ?? ''
-
-  return {
-    filters: normalizeFilterState(nextFilters),
-    offset: parseOffset(params.get('offset')),
+  if (typeof window === 'undefined') {
+    return { filters: normalizeFilterState(createDefaultFilters()), offset: 0 }
   }
+
+  return parseURLStateFromSearch(window.location.search, pageSize)
 }
 
-function syncURLState() {
-  const params = new URLSearchParams()
-
-  if (appliedFilters.search) {
-    params.set('search', appliedFilters.search)
+function syncURLState(historyMode = 'replace') {
+  if (typeof window === 'undefined') {
+    return
   }
 
-  for (const category of appliedFilters.categories) {
-    params.append('category', category)
-  }
-
-  for (const color of appliedFilters.colors) {
-    params.append('color', color)
-  }
-
-  for (const condition of appliedFilters.conditions) {
-    params.append('condition', condition)
-  }
-
-  if (appliedFilters.bestseller !== 'all') {
-    params.set('bestseller', appliedFilters.bestseller)
-  }
-
-  if (appliedFilters.onSale !== 'all') {
-    params.set('onSale', appliedFilters.onSale)
-  }
-
-  if (appliedFilters.inStock !== 'all') {
-    params.set('inStock', appliedFilters.inStock)
-  }
-
-  if (appliedFilters.sort) {
-    params.set('sort', appliedFilters.sort)
-  }
-
-  if (appliedFilters.minPrice) {
-    params.set('minPrice', appliedFilters.minPrice)
-  }
-
-  if (appliedFilters.maxPrice) {
-    params.set('maxPrice', appliedFilters.maxPrice)
-  }
-
-  if (currentOffset.value > 0) {
-    params.set('offset', String(currentOffset.value))
-  }
+  const params = buildURLSearchParams(appliedFilters, {
+    includeOffset: currentOffset.value > 0,
+    offset: currentOffset.value,
+    pageSize,
+  })
 
   const query = params.toString()
   const nextURL = query ? `${window.location.pathname}?${query}` : window.location.pathname
+  const currentURL = `${window.location.pathname}${window.location.search}`
+  if (currentURL === nextURL) {
+    return
+  }
+
+  if (historyMode === 'push') {
+    window.history.pushState(null, '', nextURL)
+    return
+  }
+
   window.history.replaceState(null, '', nextURL)
 }
 
 function buildApiQuery(offset) {
-  const params = new URLSearchParams()
-  params.set('limit', String(pageSize))
-  params.set('offset', String(offset))
-
-  if (appliedFilters.search) {
-    params.set('search', appliedFilters.search)
-  }
-
-  for (const category of appliedFilters.categories) {
-    params.append('category', category)
-  }
-
-  for (const color of appliedFilters.colors) {
-    params.append('color', color)
-  }
-
-  for (const condition of appliedFilters.conditions) {
-    params.append('condition', condition)
-  }
-
-  if (appliedFilters.bestseller !== 'all') {
-    params.set('bestseller', appliedFilters.bestseller)
-  }
-
-  if (appliedFilters.onSale !== 'all') {
-    params.set('onSale', appliedFilters.onSale)
-  }
-
-  if (appliedFilters.inStock !== 'all') {
-    params.set('inStock', appliedFilters.inStock)
-  }
-
-  if (appliedFilters.sort) {
-    params.set('sort', appliedFilters.sort)
-  }
-
-  if (appliedFilters.minPrice) {
-    params.set('minPrice', appliedFilters.minPrice)
-  }
-
-  if (appliedFilters.maxPrice) {
-    params.set('maxPrice', appliedFilters.maxPrice)
-  }
-
-  return params
+  return buildURLSearchParams(appliedFilters, {
+    includeLimit: true,
+    includeOffset: true,
+    pageSize,
+    offset,
+  })
 }
 
 function extractColorOptionsFromPayload(payload) {
@@ -689,11 +532,34 @@ function extractColorOptionsFromPayload(payload) {
   return []
 }
 
+function extractBrandOptionsFromPayload(payload) {
+  if (Array.isArray(payload?.available_brands)) {
+    return normalizeTokenList(payload.available_brands)
+  }
+
+  if (Array.isArray(payload?.items)) {
+    return normalizeTokenList(
+      payload.items
+        .map((item) => item?.brand)
+        .filter(Boolean),
+    )
+  }
+
+  return []
+}
+
 function syncColorOptionsFromPayload(payload) {
   const available = extractColorOptionsFromPayload(payload)
   const selected = normalizeTokenList([...draftFilters.colors, ...appliedFilters.colors])
   const merged = normalizeTokenList([...available, ...selected])
   colorOptions.value = merged
+}
+
+function syncBrandOptionsFromPayload(payload) {
+  const available = extractBrandOptionsFromPayload(payload)
+  const selected = normalizeTokenList([...draftFilters.brands, ...appliedFilters.brands])
+  const merged = normalizeTokenList([...available, ...selected])
+  brandOptions.value = merged
 }
 
 function syncPriceBoundsFromPayload(payload) {
@@ -732,7 +598,8 @@ async function fetchProductsPage(offset, signal) {
   return response.json()
 }
 
-async function hydrateToOffset(targetOffset = 0) {
+async function hydrateToOffset(targetOffset = 0, options = {}) {
+  const historyMode = options.historyMode === 'push' ? 'push' : 'replace'
   const validationMessage = buildFilterValidationMessage(appliedFilters)
   if (validationMessage) {
     errorMessage.value = validationMessage
@@ -740,7 +607,7 @@ async function hydrateToOffset(targetOffset = 0) {
     total.value = 0
     hasMore.value = false
     currentOffset.value = 0
-    syncURLState()
+    syncURLState(historyMode)
     return
   }
 
@@ -760,12 +627,13 @@ async function hydrateToOffset(targetOffset = 0) {
   currentOffset.value = 0
 
   let pageOffset = 0
-  const normalizedTarget = parseOffset(targetOffset)
+  const normalizedTarget = parseOffset(targetOffset, pageSize)
 
   try {
     while (true) {
       const payload = await fetchProductsPage(pageOffset, controller.signal)
       syncColorOptionsFromPayload(payload)
+      syncBrandOptionsFromPayload(payload)
       syncPriceBoundsFromPayload(payload)
 
       if (pageOffset === 0) {
@@ -785,7 +653,7 @@ async function hydrateToOffset(targetOffset = 0) {
       pageOffset += pageSize
     }
 
-    syncURLState()
+    syncURLState(historyMode)
   } catch (error) {
     if (controller.signal.aborted) {
       return
@@ -796,7 +664,7 @@ async function hydrateToOffset(targetOffset = 0) {
     total.value = 0
     hasMore.value = false
     currentOffset.value = 0
-    syncURLState()
+    syncURLState(historyMode)
   } finally {
     if (activeController === controller) {
       activeController = null
@@ -828,6 +696,7 @@ async function loadMore() {
   try {
     const payload = await fetchProductsPage(nextOffset, controller.signal)
     syncColorOptionsFromPayload(payload)
+    syncBrandOptionsFromPayload(payload)
     syncPriceBoundsFromPayload(payload)
 
     products.value = [...products.value, ...payload.items]
@@ -835,7 +704,7 @@ async function loadMore() {
     hasMore.value = payload.has_more
     currentOffset.value = nextOffset
 
-    syncURLState()
+    syncURLState('push')
   } catch (error) {
     if (controller.signal.aborted) {
       return
@@ -851,13 +720,12 @@ async function loadMore() {
   }
 }
 
-function applyNormalizedFilters(nextFilters) {
+function applyNormalizedFilters(nextFilters, historyMode = 'replace') {
   const normalized = normalizeFilterState(nextFilters)
   assignFilterState(draftFilters, normalized)
   assignFilterState(appliedFilters, normalized)
   currentOffset.value = 0
-  syncURLState()
-  void hydrateToOffset(0)
+  void hydrateToOffset(0, { historyMode })
 }
 
 function applyFilters() {
@@ -867,7 +735,7 @@ function applyFilters() {
 
   clearSearchApplyTimer()
   closeMobileFilters()
-  applyNormalizedFilters(draftFilters)
+  applyNormalizedFilters(draftFilters, 'push')
 }
 
 function handleSearchUpdate(value) {
@@ -877,6 +745,10 @@ function handleSearchUpdate(value) {
 
 function handleCategoriesUpdate(value) {
   draftFilters.categories = normalizeTokenList(value)
+}
+
+function handleBrandsUpdate(value) {
+  draftFilters.brands = normalizeTokenList(value)
 }
 
 function handleColorsUpdate(value) {
@@ -908,8 +780,7 @@ function handleSortUpdate(value) {
   draftFilters.sort = normalizedSort
   appliedFilters.sort = normalizedSort
   currentOffset.value = 0
-  syncURLState()
-  void hydrateToOffset(0)
+  void hydrateToOffset(0, { historyMode: 'push' })
 }
 
 function handleMinPriceUpdate(value) {
@@ -929,6 +800,9 @@ function removeAppliedChip(chip) {
       break
     case 'categories':
       nextFilters.categories = nextFilters.categories.filter((value) => value !== chip.value)
+      break
+    case 'brands':
+      nextFilters.brands = nextFilters.brands.filter((value) => value !== chip.value)
       break
     case 'colors':
       nextFilters.colors = nextFilters.colors.filter((value) => value !== chip.value)
@@ -959,33 +833,17 @@ function removeAppliedChip(chip) {
   }
 
   clearSearchApplyTimer()
-  applyNormalizedFilters(nextFilters)
+  applyNormalizedFilters(nextFilters, 'push')
 }
 
 function resetDraftFilters() {
-  assignFilterState(draftFilters, createDefaultFilters())
+  clearSearchApplyTimer()
+  closeMobileFilters()
+  applyNormalizedFilters(createDefaultFilters(), 'push')
 }
 
 function clearFiltersAndApply() {
-  clearSearchApplyTimer()
-  closeMobileFilters()
-  applyNormalizedFilters(createDefaultFilters())
-}
-
-function toggleMobileFilters() {
-  if (isMobileFiltersOpen.value) {
-    closeMobileFilters()
-    return
-  }
-  openMobileFilters()
-}
-
-function openMobileFilters() {
-  isMobileFiltersOpen.value = true
-}
-
-function closeMobileFilters() {
-  isMobileFiltersOpen.value = false
+  resetDraftFilters()
 }
 
 function clearSearchApplyTimer() {
@@ -1008,8 +866,7 @@ function scheduleSearchApply() {
     draftFilters.search = normalizedSearch
     appliedFilters.search = normalizedSearch
     currentOffset.value = 0
-    syncURLState()
-    void hydrateToOffset(0)
+    void hydrateToOffset(0, { historyMode: 'push' })
   }, searchDebounceMs)
 }
 
@@ -1023,7 +880,7 @@ function retryFailedRequest() {
 }
 
 function handleWindowScroll() {
-  showScrollTopButton.value = window.scrollY > 420
+  showScrollTopButton.value = window.scrollY > MOBILE_SCROLL_TOP_THRESHOLD
 }
 
 function scrollToTop() {
@@ -1038,91 +895,6 @@ function handlePopState() {
   void hydrateToOffset(offset)
 }
 
-function formatTokenLabel(token) {
-  return token
-    .split('-')
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
-}
-
-function focusMobileDialog() {
-  if (!(mobileFiltersDialogRef.value instanceof HTMLElement)) {
-    return
-  }
-
-  const focusable = getFocusableElements(mobileFiltersDialogRef.value)
-  if (mobileFiltersCloseButtonRef.value instanceof HTMLElement) {
-    mobileFiltersCloseButtonRef.value.focus()
-    return
-  }
-
-  if (focusable.length > 0) {
-    focusable[0].focus()
-    return
-  }
-
-  mobileFiltersDialogRef.value.focus()
-}
-
-function getFocusableElements(container) {
-  const selector = [
-    'a[href]',
-    'button:not([disabled])',
-    'input:not([disabled])',
-    'select:not([disabled])',
-    'textarea:not([disabled])',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(',')
-
-  return [...container.querySelectorAll(selector)].filter((element) => {
-    return element instanceof HTMLElement && element.offsetParent !== null
-  })
-}
-
-function handleMobileDialogKeydown(event) {
-  if (!isMobileFiltersOpen.value) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeMobileFilters()
-    return
-  }
-
-  if (event.key !== 'Tab') {
-    return
-  }
-
-  if (!(mobileFiltersDialogRef.value instanceof HTMLElement)) {
-    return
-  }
-
-  const focusable = getFocusableElements(mobileFiltersDialogRef.value)
-  if (focusable.length === 0) {
-    event.preventDefault()
-    mobileFiltersDialogRef.value.focus()
-    return
-  }
-
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  const active = document.activeElement
-
-  if (event.shiftKey) {
-    if (active === first || !mobileFiltersDialogRef.value.contains(active)) {
-      event.preventDefault()
-      last.focus()
-    }
-    return
-  }
-
-  if (active === last || !mobileFiltersDialogRef.value.contains(active)) {
-    event.preventDefault()
-    first.focus()
-  }
-}
-
 onMounted(() => {
   initializeTheme()
   const { filters, offset } = parseURLState()
@@ -1130,19 +902,19 @@ onMounted(() => {
   assignFilterState(appliedFilters, filters)
   void hydrateToOffset(offset)
 
-  handleWindowScroll()
-  window.addEventListener('scroll', handleWindowScroll, { passive: true })
-  window.addEventListener('popstate', handlePopState)
+  if (typeof window !== 'undefined') {
+    handleWindowScroll()
+    window.addEventListener('scroll', handleWindowScroll, { passive: true })
+    window.addEventListener('popstate', handlePopState)
+  }
 })
 
 onBeforeUnmount(() => {
   clearSearchApplyTimer()
-  window.removeEventListener('scroll', handleWindowScroll)
-  window.removeEventListener('popstate', handlePopState)
-  window.removeEventListener('keydown', handleMobileDialogKeydown)
 
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = previousBodyOverflow
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('scroll', handleWindowScroll)
+    window.removeEventListener('popstate', handlePopState)
   }
 
   if (activeController) {

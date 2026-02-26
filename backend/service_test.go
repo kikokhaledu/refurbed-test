@@ -266,9 +266,9 @@ func TestMergeProducts_EmptyID(t *testing.T) {
 func TestProductService_QueryProducts_FilterAndPagination(t *testing.T) {
 	source := &fakeSource{
 		metadata: []MetadataRecord{
-			{ID: "p1", Name: "iPhone 12", BasePrice: 400, Category: "smartphones"},
-			{ID: "p2", Name: "Galaxy S23", BasePrice: 500, Category: "smartphones"},
-			{ID: "p3", Name: "iPhone 13", BasePrice: 700, Category: "smartphones"},
+			{ID: "p1", Name: "iPhone 12", BasePrice: 400, Category: "smartphones", Brand: "apple"},
+			{ID: "p2", Name: "Galaxy S23", BasePrice: 500, Category: "smartphones", Brand: "samsung"},
+			{ID: "p3", Name: "iPhone 13", BasePrice: 700, Category: "smartphones", Brand: "apple"},
 		},
 		details: []DetailsRecord{
 			{ID: "p1", DiscountPercent: 10, Bestseller: true, Colors: []string{"blue"}, Stock: 1, Condition: "refurbished"},
@@ -310,6 +310,39 @@ func TestProductService_QueryProducts_FilterAndPagination(t *testing.T) {
 	}
 	if response.HasMore {
 		t.Fatalf("expected has_more=false")
+	}
+}
+
+func TestProductService_BrandFilter(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Device A", BasePrice: 400, Brand: "apple"},
+			{ID: "p2", Name: "Device B", BasePrice: 500, Brand: "samsung"},
+			{ID: "p3", Name: "Device C", BasePrice: 600, Brand: "google"},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+			{ID: "p3", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Brands: []string{"samsung", "google"},
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 2 || len(response.Items) != 2 {
+		t.Fatalf("expected two filtered products, got total=%d items=%d", response.Total, len(response.Items))
+	}
+
+	for _, item := range response.Items {
+		if item.Brand != "samsung" && item.Brand != "google" {
+			t.Fatalf("expected only samsung/google brands, got %q", item.Brand)
+		}
 	}
 }
 
@@ -443,6 +476,37 @@ func TestProductService_PriceBoundsInclusive(t *testing.T) {
 	}
 	if response.Items[0].Price != 100 {
 		t.Fatalf("expected filtered item price 100, got %v", response.Items[0].Price)
+	}
+}
+
+func TestProductService_IntegerPricePointIncludesCentPrices(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Product A", BasePrice: 100.99},
+			{ID: "p2", Name: "Product B", BasePrice: 101.49},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	minPrice := 100.0
+	maxPrice := 100.99
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		MinPrice: &minPrice,
+		MaxPrice: &maxPrice,
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	if response.Total != 1 || len(response.Items) != 1 {
+		t.Fatalf("expected exactly one product within 100..100.99, got total=%d items=%d", response.Total, len(response.Items))
+	}
+	if response.Items[0].ID != "p1" {
+		t.Fatalf("expected p1 at price 100.99, got %s", response.Items[0].ID)
 	}
 }
 
@@ -765,6 +829,36 @@ func TestProductService_AvailableColorsExcludeOutOfStockColors(t *testing.T) {
 	}
 }
 
+func TestProductService_AvailableBrandsComeFromDataset(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Phone A", BasePrice: 100, Brand: " Apple "},
+			{ID: "p2", Name: "Phone B", BasePrice: 120, Brand: "samsung"},
+			{ID: "p3", Name: "Phone C", BasePrice: 140, Brand: "apple"},
+			{ID: "p4", Name: "Phone D", BasePrice: 160, Brand: ""},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 10},
+			{ID: "p3", DiscountPercent: 10},
+			{ID: "p4", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	response, err := service.QueryProducts(context.Background(), ProductQuery{
+		Search: "phone a",
+	})
+	if err != nil {
+		t.Fatalf("QueryProducts() unexpected error: %v", err)
+	}
+
+	want := []string{"apple", "samsung"}
+	if strings.Join(response.AvailableBrands, ",") != strings.Join(want, ",") {
+		t.Fatalf("expected available brands %v, got %v", want, response.AvailableBrands)
+	}
+}
+
 func TestProductService_PriceBoundsComeFromDataset(t *testing.T) {
 	source := &fakeSource{
 		metadata: []MetadataRecord{
@@ -831,6 +925,103 @@ func TestProductService_SortByPopularity(t *testing.T) {
 	}
 	if response.Items[0].PopularityRank != 1 || response.Items[1].PopularityRank != 2 {
 		t.Fatalf("expected popularity ranks [1 2 ...], got [%d %d ...]", response.Items[0].PopularityRank, response.Items[1].PopularityRank)
+	}
+}
+
+func TestProductService_SortByPriceAscAndDesc(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Gamma", BasePrice: 300},
+			{ID: "p2", Name: "Alpha", BasePrice: 100},
+			{ID: "p3", Name: "Beta", BasePrice: 200},
+			{ID: "p4", Name: "Alpha", BasePrice: 200},
+			{ID: "p0", Name: "Alpha", BasePrice: 200},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+			{ID: "p3", DiscountPercent: 0},
+			{ID: "p4", DiscountPercent: 0},
+			{ID: "p0", DiscountPercent: 0},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	ascResponse, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "price_asc"})
+	if err != nil {
+		t.Fatalf("QueryProducts(price_asc) unexpected error: %v", err)
+	}
+	if len(ascResponse.Items) != 5 {
+		t.Fatalf("expected 5 items for price_asc, got %d", len(ascResponse.Items))
+	}
+	ascIDs := []string{
+		ascResponse.Items[0].ID,
+		ascResponse.Items[1].ID,
+		ascResponse.Items[2].ID,
+		ascResponse.Items[3].ID,
+		ascResponse.Items[4].ID,
+	}
+	if strings.Join(ascIDs, ",") != "p2,p0,p4,p3,p1" {
+		t.Fatalf("expected price_asc order [p2 p0 p4 p3 p1], got %v", ascIDs)
+	}
+
+	descResponse, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "price_desc"})
+	if err != nil {
+		t.Fatalf("QueryProducts(price_desc) unexpected error: %v", err)
+	}
+	if len(descResponse.Items) != 5 {
+		t.Fatalf("expected 5 items for price_desc, got %d", len(descResponse.Items))
+	}
+	descIDs := []string{
+		descResponse.Items[0].ID,
+		descResponse.Items[1].ID,
+		descResponse.Items[2].ID,
+		descResponse.Items[3].ID,
+		descResponse.Items[4].ID,
+	}
+	if strings.Join(descIDs, ",") != "p1,p0,p4,p3,p2" {
+		t.Fatalf("expected price_desc order [p1 p0 p4 p3 p2], got %v", descIDs)
+	}
+}
+
+func TestProductService_MultiSortPopularityThenPrice(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Gamma", BasePrice: 300},
+			{ID: "p2", Name: "Alpha", BasePrice: 100},
+			{ID: "p3", Name: "Beta", BasePrice: 200},
+		},
+		details: []DetailsRecord{
+			{ID: "p1", DiscountPercent: 0},
+			{ID: "p2", DiscountPercent: 0},
+			{ID: "p3", DiscountPercent: 0},
+		},
+	}
+	popularity := &fakePopularitySource{
+		records: []PopularityRecord{
+			{ID: "p1", Rank: 1},
+			{ID: "p2", Rank: 1},
+			{ID: "p3", Rank: 2},
+		},
+	}
+	service := NewProductService(source, 30*time.Second).WithPopularitySource(popularity)
+
+	ascResponse, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "popularity,price_asc"})
+	if err != nil {
+		t.Fatalf("QueryProducts(popularity,price_asc) unexpected error: %v", err)
+	}
+	ascIDs := []string{ascResponse.Items[0].ID, ascResponse.Items[1].ID, ascResponse.Items[2].ID}
+	if strings.Join(ascIDs, ",") != "p2,p1,p3" {
+		t.Fatalf("expected popularity+price_asc order [p2 p1 p3], got %v", ascIDs)
+	}
+
+	descResponse, err := service.QueryProducts(context.Background(), ProductQuery{Sort: "popularity,price_desc"})
+	if err != nil {
+		t.Fatalf("QueryProducts(popularity,price_desc) unexpected error: %v", err)
+	}
+	descIDs := []string{descResponse.Items[0].ID, descResponse.Items[1].ID, descResponse.Items[2].ID}
+	if strings.Join(descIDs, ",") != "p1,p2,p3" {
+		t.Fatalf("expected popularity+price_desc order [p1 p2 p3], got %v", descIDs)
 	}
 }
 
@@ -928,6 +1119,60 @@ func TestDiscountedPriceCents_RoundsAtCentPrecision(t *testing.T) {
 	}
 	if got := discountedPriceCents(414.99, 25); got != 31124 {
 		t.Fatalf("expected 31124 cents, got %d", got)
+	}
+}
+
+func TestProductService_QueryProductsResponseIsImmutableFromCallerMutations(t *testing.T) {
+	source := &fakeSource{
+		metadata: []MetadataRecord{
+			{ID: "p1", Name: "Alpha", BasePrice: 200, Brand: "Apple"},
+		},
+		details: []DetailsRecord{
+			{
+				ID:               "p1",
+				DiscountPercent:  10,
+				Colors:           []string{"blue"},
+				StockByColor:     map[string]int{"blue": 5},
+				ImageURLsByColor: map[string]string{"blue": "https://example.com/blue.jpg"},
+			},
+		},
+	}
+	service := NewProductService(source, 30*time.Second)
+
+	first, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("first QueryProducts() unexpected error: %v", err)
+	}
+	if len(first.Items) != 1 {
+		t.Fatalf("expected one item in first response, got %d", len(first.Items))
+	}
+	first.Items[0].Colors[0] = "mutated-color"
+	first.Items[0].StockByColor["blue"] = 999
+	first.Items[0].ImageURLsByColor["blue"] = "https://mutated.invalid/image.jpg"
+	first.AvailableColors[0] = "mutated-available-color"
+	first.AvailableBrands[0] = "mutated-available-brand"
+
+	second, err := service.QueryProducts(context.Background(), ProductQuery{})
+	if err != nil {
+		t.Fatalf("second QueryProducts() unexpected error: %v", err)
+	}
+	if len(second.Items) != 1 {
+		t.Fatalf("expected one item in second response, got %d", len(second.Items))
+	}
+	if second.Items[0].Colors[0] != "blue" {
+		t.Fatalf("expected original color to remain blue, got %q", second.Items[0].Colors[0])
+	}
+	if second.Items[0].StockByColor["blue"] != 5 {
+		t.Fatalf("expected original stock_by_color blue=5, got %d", second.Items[0].StockByColor["blue"])
+	}
+	if second.Items[0].ImageURLsByColor["blue"] != "https://example.com/blue.jpg" {
+		t.Fatalf("expected original image_urls_by_color blue URL, got %q", second.Items[0].ImageURLsByColor["blue"])
+	}
+	if second.AvailableColors[0] != "blue" {
+		t.Fatalf("expected available color to remain blue, got %q", second.AvailableColors[0])
+	}
+	if second.AvailableBrands[0] != "apple" {
+		t.Fatalf("expected available brand to remain apple, got %q", second.AvailableBrands[0])
 	}
 }
 

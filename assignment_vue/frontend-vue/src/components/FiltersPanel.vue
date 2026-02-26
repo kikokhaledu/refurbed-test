@@ -1,10 +1,11 @@
 <template>
-  <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-    <div ref="topControlsRef" class="mb-6 flex items-center justify-between">
+  <section data-testid="filters-panel" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div ref="topControlsRef" data-testid="filters-top-controls" class="mb-6 flex items-center justify-between">
       <h2 class="text-2xl font-semibold text-slate-800 dark:text-slate-100">Filters</h2>
       <div class="flex items-center gap-2">
         <button
           type="button"
+          data-testid="filters-reset-top"
           class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           @click="$emit('clear')"
         >
@@ -12,6 +13,7 @@
         </button>
         <button
           type="button"
+          data-testid="filters-apply-top"
           class="rounded-lg border border-teal-700 bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-400"
           :disabled="applyDisabled"
           @click="$emit('apply')"
@@ -22,6 +24,7 @@
     </div>
     <p
       v-if="hasPendingChanges && !showBottomActionBar"
+      data-testid="filter-unapplied-warning-top"
       class="mb-4 text-sm font-medium text-amber-700 dark:text-amber-300"
     >
       You have unapplied changes.
@@ -34,6 +37,7 @@
           <li v-for="category in categoryOptions" :key="category">
             <label class="inline-flex cursor-pointer items-center gap-3 text-base text-slate-700 dark:text-slate-300">
               <input
+                :data-testid="`filter-category-${category}`"
                 :checked="selectedCategories.includes(category)"
                 :disabled="disabled"
                 type="checkbox"
@@ -47,11 +51,31 @@
       </section>
 
       <section>
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Brand</h3>
+        <ul class="mt-3 space-y-2">
+          <li v-for="brand in brandOptions" :key="brand">
+            <label class="inline-flex cursor-pointer items-center gap-3 text-base text-slate-700 dark:text-slate-300">
+              <input
+                :data-testid="`filter-brand-${brand}`"
+                :checked="selectedBrands.includes(brand)"
+                :disabled="disabled"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-300 bg-white text-teal-600 focus:ring-teal-600 dark:border-slate-700 dark:bg-slate-800 dark:text-teal-400 dark:focus:ring-teal-400"
+                @change="toggleBrand(brand)"
+              />
+              <span class="capitalize">{{ brand }}</span>
+            </label>
+          </li>
+        </ul>
+      </section>
+
+      <section>
         <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Colors</h3>
         <ul class="mt-3 grid grid-cols-2 gap-2">
           <li v-for="color in colorOptions" :key="color">
             <button
               type="button"
+              :data-testid="`filter-color-${color}`"
               :disabled="disabled"
               :aria-pressed="selectedColors.includes(color)"
               class="flex w-full min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -85,55 +109,79 @@
       <section>
         <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Price range</h3>
         <div class="mt-3 space-y-3">
-          <div class="flex items-center justify-between gap-2 text-xs font-semibold">
-            <span
-              class="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              Min EUR {{ sliderMin }}
-            </span>
-            <span
-              class="inline-flex rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              Max EUR {{ sliderMax }}
-            </span>
-          </div>
-
-          <div class="relative h-8">
+          <div class="slider-shell relative h-8">
             <div
-              class="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200 dark:bg-slate-700"
-            ></div>
-            <div
-              class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-teal-700 dark:bg-teal-400"
-              :style="sliderRangeStyle"
-            ></div>
+              class="slider-inner absolute inset-y-0"
+              @mouseenter="isSliderHovering = true"
+              @mouseleave="isSliderHovering = false"
+            >
+              <span
+                data-testid="price-min-badge"
+                class="pointer-events-none absolute z-40 whitespace-nowrap rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 opacity-0 shadow-sm transition-opacity duration-150 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                :class="showSliderIndicators ? 'opacity-100' : 'opacity-0'"
+                :style="minIndicatorStyle"
+              >
+                Min EUR {{ sliderMin }}
+              </span>
+              <span
+                data-testid="price-max-badge"
+                class="pointer-events-none absolute z-40 whitespace-nowrap rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 opacity-0 shadow-sm transition-opacity duration-150 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                :class="showSliderIndicators ? 'opacity-100' : 'opacity-0'"
+                :style="maxIndicatorStyle"
+              >
+                Max EUR {{ sliderMax }}
+              </span>
 
-            <input
-              :value="sliderMin"
-              :disabled="disabled"
-              type="range"
-              :min="priceFloor"
-              :max="priceCeiling"
-              step="1"
-              aria-label="Minimum price"
-              class="dual-thumb-slider z-20"
-              @input="handleMinRangeInput"
-            />
-            <input
-              :value="sliderMax"
-              :disabled="disabled"
-              type="range"
-              :min="priceFloor"
-              :max="priceCeiling"
-              step="1"
-              aria-label="Maximum price"
-              class="dual-thumb-slider z-30"
-              @input="handleMaxRangeInput"
-            />
+              <div
+                class="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200 dark:bg-slate-700"
+              ></div>
+              <div
+                class="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-teal-700 dark:bg-teal-400"
+                :style="sliderRangeStyle"
+              ></div>
+
+              <input
+                ref="minSliderRef"
+                data-testid="price-slider-min"
+                :value="sliderMin"
+                :disabled="disabled"
+                type="range"
+                :min="normalizedFloor"
+                :max="normalizedCeiling"
+                step="1"
+                aria-label="Minimum price"
+                :class="['dual-thumb-slider', activeThumb === 'min' ? 'z-30' : 'z-20']"
+                @pointerdown="handleThumbPointerDown('min')"
+                @pointerup="handleThumbPointerUp"
+                @pointercancel="handleThumbPointerUp"
+                @focus="handleThumbFocus('min')"
+                @blur="handleThumbBlur"
+                @input="handleMinRangeInput"
+              />
+              <input
+                ref="maxSliderRef"
+                data-testid="price-slider-max"
+                :value="sliderMax"
+                :disabled="disabled"
+                type="range"
+                :min="normalizedFloor"
+                :max="normalizedCeiling"
+                step="1"
+                aria-label="Maximum price"
+                :class="['dual-thumb-slider', activeThumb === 'max' ? 'z-30' : 'z-20']"
+                @pointerdown="handleThumbPointerDown('max')"
+                @pointerup="handleThumbPointerUp"
+                @pointercancel="handleThumbPointerUp"
+                @focus="handleThumbFocus('max')"
+                @blur="handleThumbBlur"
+                @input="handleMaxRangeInput"
+              />
+            </div>
           </div>
 
           <div class="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>EUR {{ priceFloor }}</span>
-            <span>EUR {{ priceCeiling }}</span>
+            <span>EUR {{ normalizedFloor }}</span>
+            <span>EUR {{ normalizedCeiling }}</span>
           </div>
         </div>
       </section>
@@ -143,6 +191,7 @@
         <div class="bestseller-options mt-3">
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-onsale-all"
               type="radio"
               name="on-sale-filter"
               value="all"
@@ -155,6 +204,7 @@
           </label>
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-onsale-true"
               type="radio"
               name="on-sale-filter"
               value="true"
@@ -174,6 +224,7 @@
           <li v-for="condition in conditionOptions" :key="condition">
             <label class="inline-flex cursor-pointer items-center gap-3 text-base text-slate-700 dark:text-slate-300">
               <input
+                :data-testid="`filter-condition-${condition}`"
                 :checked="selectedConditions.includes(condition)"
                 :disabled="disabled"
                 type="checkbox"
@@ -191,6 +242,7 @@
         <div class="bestseller-options mt-3">
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-instock-all"
               type="radio"
               name="stock-filter"
               value="all"
@@ -203,6 +255,7 @@
           </label>
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-instock-true"
               type="radio"
               name="stock-filter"
               value="true"
@@ -221,6 +274,7 @@
         <div class="bestseller-options mt-3">
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-bestseller-all"
               type="radio"
               name="bestseller-filter"
               value="all"
@@ -233,6 +287,7 @@
           </label>
           <label class="bestseller-option text-base text-slate-700 dark:text-slate-300">
             <input
+              data-testid="filter-bestseller-true"
               type="radio"
               name="bestseller-filter"
               value="true"
@@ -246,17 +301,19 @@
         </div>
       </section>
 
-      <p v-if="validationMessage" class="mt-1 text-sm text-rose-600 dark:text-rose-300">
+      <p v-if="validationMessage" data-testid="filter-validation-message" class="mt-1 text-sm text-rose-600 dark:text-rose-300">
         {{ validationMessage }}
       </p>
     </div>
 
     <div
       v-if="showBottomActionBar"
+      data-testid="filters-bottom-actions"
       class="sticky bottom-3 z-10 mt-6 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
     >
       <p
         v-if="hasPendingChanges"
+        data-testid="filter-unapplied-warning-bottom"
         class="mb-2 text-sm font-medium text-amber-700 dark:text-amber-300"
       >
         You have unapplied changes.
@@ -264,6 +321,7 @@
       <div class="flex items-center justify-end gap-2">
         <button
           type="button"
+          data-testid="filters-reset-bottom"
           class="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           @click="$emit('clear')"
         >
@@ -271,6 +329,7 @@
         </button>
         <button
           type="button"
+          data-testid="filters-apply-bottom"
           class="rounded-lg border border-teal-700 bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 dark:disabled:border-slate-700 dark:disabled:bg-slate-800 dark:disabled:text-slate-400"
           :disabled="applyDisabled"
           @click="$emit('apply')"
@@ -283,10 +342,15 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { swatchColorForToken } from '../constants/colors'
 
 const props = defineProps({
   selectedCategories: {
+    type: Array,
+    default: () => [],
+  },
+  selectedBrands: {
     type: Array,
     default: () => [],
   },
@@ -330,6 +394,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  brandOptions: {
+    type: Array,
+    default: () => [],
+  },
   colorOptions: {
     type: Array,
     default: () => [],
@@ -360,6 +428,7 @@ const emit = defineEmits([
   'apply',
   'clear',
   'update:selectedCategories',
+  'update:selectedBrands',
   'update:selectedColors',
   'update:selectedConditions',
   'update:bestseller',
@@ -372,6 +441,14 @@ const emit = defineEmits([
 const topControlsRef = ref(null)
 const isTopControlsVisible = ref(true)
 const showBottomActionBar = computed(() => !isTopControlsVisible.value)
+const localSliderMin = ref(0)
+const localSliderMax = ref(0)
+const activeThumb = ref('max')
+const minSliderRef = ref(null)
+const maxSliderRef = ref(null)
+const sliderMinGap = 1
+const isSliderHovering = ref(false)
+const isSliderInteracting = ref(false)
 
 let topControlsObserver = null
 
@@ -392,6 +469,9 @@ onMounted(() => {
   )
 
   topControlsObserver.observe(topControlsRef.value)
+
+  window.addEventListener('pointerup', handleGlobalPointerRelease)
+  window.addEventListener('pointercancel', handleGlobalPointerRelease)
 })
 
 onBeforeUnmount(() => {
@@ -399,27 +479,54 @@ onBeforeUnmount(() => {
     topControlsObserver.disconnect()
     topControlsObserver = null
   }
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('pointerup', handleGlobalPointerRelease)
+    window.removeEventListener('pointercancel', handleGlobalPointerRelease)
+  }
 })
 
-const sliderMin = computed(() => {
-  const parsed = parsePriceValue(props.minPrice)
-  if (parsed === null) {
-    return props.priceFloor
-  }
-  return clampToBounds(parsed)
+const normalizedFloor = computed(() => {
+  const floor = Number.isFinite(props.priceFloor) ? Math.round(props.priceFloor) : 0
+  const ceiling = Number.isFinite(props.priceCeiling) ? Math.round(props.priceCeiling) : 0
+  return Math.min(floor, ceiling)
 })
 
-const sliderMax = computed(() => {
-  const parsed = parsePriceValue(props.maxPrice)
-  if (parsed === null) {
-    return props.priceCeiling
-  }
-  return clampToBounds(parsed)
+const normalizedCeiling = computed(() => {
+  const floor = Number.isFinite(props.priceFloor) ? Math.round(props.priceFloor) : 0
+  const ceiling = Number.isFinite(props.priceCeiling) ? Math.round(props.priceCeiling) : 0
+  return Math.max(floor, ceiling)
 })
+
+watch(
+  [() => props.priceFloor, () => props.priceCeiling, () => props.minPrice, () => props.maxPrice],
+  () => {
+    const floor = normalizedFloor.value
+    const ceiling = normalizedCeiling.value
+
+    const parsedMin = parsePriceValue(props.minPrice)
+    const parsedMax = parsePriceValue(props.maxPrice)
+
+    let nextMin = parsedMin === null ? floor : clampToRange(parsedMin, floor, ceiling)
+    let nextMax = parsedMax === null ? ceiling : clampToRange(parsedMax, floor, ceiling)
+
+    if (nextMin > nextMax) {
+      nextMax = nextMin
+    }
+
+    localSliderMin.value = nextMin
+    localSliderMax.value = nextMax
+    void syncSliderDomValues()
+  },
+  { immediate: true },
+)
+
+const sliderMin = computed(() => localSliderMin.value)
+const sliderMax = computed(() => localSliderMax.value)
 
 const sliderRangeStyle = computed(() => {
-  const floor = props.priceFloor
-  const ceiling = props.priceCeiling
+  const floor = normalizedFloor.value
+  const ceiling = normalizedCeiling.value
   if (!Number.isFinite(floor) || !Number.isFinite(ceiling) || ceiling <= floor) {
     return {
       left: '0%',
@@ -427,13 +534,52 @@ const sliderRangeStyle = computed(() => {
     }
   }
 
-  const range = ceiling - floor
-  const minPercent = ((sliderMin.value - floor) / range) * 100
-  const maxPercent = ((sliderMax.value - floor) / range) * 100
+  const minPercent = sliderPercents.value.min
+  const maxPercent = sliderPercents.value.max
 
   return {
     left: `${Math.max(0, Math.min(100, minPercent))}%`,
     width: `${Math.max(0, Math.min(100, maxPercent) - Math.max(0, minPercent))}%`,
+  }
+})
+
+const sliderPercents = computed(() => {
+  const floor = normalizedFloor.value
+  const ceiling = normalizedCeiling.value
+  if (!Number.isFinite(floor) || !Number.isFinite(ceiling) || ceiling <= floor) {
+    return { min: 0, max: 0 }
+  }
+
+  const range = ceiling - floor
+  const rangeStart = Math.min(sliderMin.value, sliderMax.value)
+  const rangeEnd = Math.max(sliderMin.value, sliderMax.value)
+
+  const min = ((rangeStart - floor) / range) * 100
+  const max = ((rangeEnd - floor) / range) * 100
+
+  return {
+    min: Math.max(0, Math.min(100, min)),
+    max: Math.max(0, Math.min(100, max)),
+  }
+})
+
+const showSliderIndicators = computed(() => isSliderHovering.value || isSliderInteracting.value)
+
+const minIndicatorStyle = computed(() => {
+  const leftPercent = sliderPercents.value.min
+  return {
+    top: '-0.2rem',
+    left: `${leftPercent}%`,
+    transform: 'translate(-50%, -100%)',
+  }
+})
+
+const maxIndicatorStyle = computed(() => {
+  const leftPercent = sliderPercents.value.max
+  return {
+    top: '-0.2rem',
+    left: `${leftPercent}%`,
+    transform: 'translate(-50%, -100%)',
   }
 })
 
@@ -445,6 +591,16 @@ function toggleCategory(category) {
     selected.add(category)
   }
   emit('update:selectedCategories', [...selected])
+}
+
+function toggleBrand(brand) {
+  const selected = new Set(props.selectedBrands)
+  if (selected.has(brand)) {
+    selected.delete(brand)
+  } else {
+    selected.add(brand)
+  }
+  emit('update:selectedBrands', [...selected])
 }
 
 function toggleColor(color) {
@@ -468,32 +624,64 @@ function toggleCondition(condition) {
 }
 
 function swatchColor(colorName) {
-  const palette = {
-    black: '#111827',
-    blue: '#3f5bd3',
-    gray: '#4b5563',
-    green: '#16a34a',
-    orange: '#ea580c',
-    pink: '#ec4899',
-    red: '#e11d48',
-    silver: '#94a3b8',
-    white: '#f8fafc',
-  }
-  return palette[colorName] ?? '#cbd5e1'
+  return swatchColorForToken(colorName)
 }
 
 function handleMinRangeInput(event) {
   const raw = Number.parseInt(event.target.value, 10)
-  const next = Number.isNaN(raw) ? props.priceFloor : clampToBounds(raw)
-  const safeMin = Math.min(next, sliderMax.value)
+  const floor = normalizedFloor.value
+  const ceiling = normalizedCeiling.value
+  const enforcedGap = ceiling > floor ? sliderMinGap : 0
+  const maxForMin = Math.max(floor, sliderMax.value - enforcedGap)
+  const safeMin = Number.isNaN(raw) ? floor : clampToRange(raw, floor, maxForMin)
+  localSliderMin.value = safeMin
   emit('update:minPrice', String(safeMin))
 }
 
 function handleMaxRangeInput(event) {
   const raw = Number.parseInt(event.target.value, 10)
-  const next = Number.isNaN(raw) ? props.priceCeiling : clampToBounds(raw)
-  const safeMax = Math.max(next, sliderMin.value)
+  const floor = normalizedFloor.value
+  const ceiling = normalizedCeiling.value
+  const enforcedGap = ceiling > floor ? sliderMinGap : 0
+  const minForMax = Math.min(ceiling, sliderMin.value + enforcedGap)
+  const safeMax = Number.isNaN(raw) ? ceiling : clampToRange(raw, minForMax, ceiling)
+  localSliderMax.value = safeMax
   emit('update:maxPrice', String(safeMax))
+}
+
+function setActiveThumb(thumb) {
+  activeThumb.value = thumb
+}
+
+function handleThumbPointerDown(thumb) {
+  setActiveThumb(thumb)
+  isSliderInteracting.value = true
+}
+
+function handleThumbPointerUp() {
+  isSliderInteracting.value = false
+}
+
+function handleThumbFocus(thumb) {
+  setActiveThumb(thumb)
+  isSliderInteracting.value = true
+}
+
+function handleThumbBlur() {
+  if (!isSliderHovering.value) {
+    isSliderInteracting.value = false
+  }
+}
+
+async function syncSliderDomValues() {
+  await nextTick()
+
+  if (minSliderRef.value instanceof HTMLInputElement) {
+    minSliderRef.value.value = String(localSliderMin.value)
+  }
+  if (maxSliderRef.value instanceof HTMLInputElement) {
+    maxSliderRef.value.value = String(localSliderMax.value)
+  }
 }
 
 function parsePriceValue(rawValue) {
@@ -508,8 +696,14 @@ function parsePriceValue(rawValue) {
   return Math.round(parsed)
 }
 
-function clampToBounds(value) {
-  return Math.min(props.priceCeiling, Math.max(props.priceFloor, value))
+function clampToRange(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function handleGlobalPointerRelease() {
+  if (!isSliderHovering.value) {
+    isSliderInteracting.value = false
+  }
 }
 </script>
 
@@ -528,6 +722,16 @@ function clampToBounds(value) {
 .bestseller-option input[type='radio'] {
   margin: 0;
   flex-shrink: 0;
+}
+
+.slider-shell {
+  --thumb-size: 1.1rem;
+  --thumb-half: calc(var(--thumb-size) / 2);
+}
+
+.slider-inner {
+  left: var(--thumb-half);
+  right: var(--thumb-half);
 }
 
 .dual-thumb-slider {

@@ -1,5 +1,6 @@
 <template>
   <article
+    :data-testid="`product-card-${product.id}`"
     class="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
   >
     <div
@@ -18,6 +19,7 @@
 
     <figure class="bg-slate-100 px-4 pb-4 pt-8">
       <img
+        :data-testid="`product-image-${product.id}`"
         :key="`${product.id}-${selectedColor}`"
         :src="resolvedImageUrl"
         :alt="selectedColor ? `${product.name} in ${selectedColor}` : `${product.name} product image`"
@@ -43,6 +45,7 @@
         <li v-for="color in visibleProductColors" :key="`${product.id}-${color}`">
           <button
             type="button"
+            :data-testid="`product-swatch-${product.id}-${normalizeToken(color)}`"
             class="block h-5 w-5 rounded-full border border-slate-300 transition hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 dark:border-slate-600"
             :class="
               selectedColor === normalizeToken(color)
@@ -68,13 +71,16 @@
         </p>
       </div>
 
-      <p class="text-sm font-medium text-slate-500 dark:text-slate-400">{{ stockLabel }}</p>
+      <p :data-testid="`product-stock-${product.id}`" class="text-sm font-medium text-slate-500 dark:text-slate-400">
+        {{ stockLabel }}
+      </p>
     </div>
   </article>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { swatchColorForToken } from '../constants/colors'
 
 const props = defineProps({
   product: {
@@ -87,18 +93,6 @@ const currencyFormatter = new Intl.NumberFormat('de-AT', {
   style: 'currency',
   currency: 'EUR',
 })
-
-const colorPalette = {
-  black: '#111827',
-  blue: '#3f5bd3',
-  gray: '#4b5563',
-  green: '#16a34a',
-  orange: '#ea580c',
-  pink: '#ec4899',
-  red: '#e11d48',
-  silver: '#94a3b8',
-  white: '#f8fafc',
-}
 
 const selectedColor = ref('')
 const imageLoadFailed = ref(false)
@@ -212,14 +206,35 @@ const resolvedImageUrl = computed(() => {
 
 const formattedPrice = computed(() => currencyFormatter.format(props.product.price))
 
-const showOriginalPrice = computed(() => props.product.discount_percent > 0)
+const normalizedDiscountPercent = computed(() => {
+  const parsed = Number(props.product.discount_percent)
+  if (!Number.isFinite(parsed)) {
+    return 0
+  }
+
+  return Math.max(0, Math.min(100, Math.trunc(parsed)))
+})
+
+const showOriginalPrice = computed(() => {
+  return normalizedDiscountPercent.value > 0 && normalizedDiscountPercent.value < 100
+})
 
 const formattedOriginalPrice = computed(() => {
   if (!showOriginalPrice.value) {
     return ''
   }
-  const discountRatio = props.product.discount_percent / 100
-  const originalPrice = props.product.price / (1 - discountRatio)
+
+  const discountRatio = normalizedDiscountPercent.value / 100
+  const divisor = 1 - discountRatio
+  if (!Number.isFinite(divisor) || divisor <= 0) {
+    return ''
+  }
+
+  const originalPrice = props.product.price / divisor
+  if (!Number.isFinite(originalPrice)) {
+    return ''
+  }
+
   return currencyFormatter.format(originalPrice)
 })
 
@@ -240,7 +255,7 @@ const stockLabel = computed(() => {
 })
 
 function swatchColor(colorName) {
-  return colorPalette[normalizeToken(colorName)] ?? '#cbd5e1'
+  return swatchColorForToken(normalizeToken(colorName))
 }
 
 function normalizeToken(value) {

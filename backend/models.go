@@ -49,6 +49,7 @@ type ProductListResponse struct {
 	Offset          int       `json:"offset"`
 	HasMore         bool      `json:"has_more"`
 	AvailableColors []string  `json:"available_colors"`
+	AvailableBrands []string  `json:"available_brands"`
 	PriceMin        float64   `json:"price_min"`
 	PriceMax        float64   `json:"price_max"`
 }

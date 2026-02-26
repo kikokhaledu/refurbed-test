@@ -18,7 +18,7 @@ type ProductService struct {
 	now              func() time.Time
 
 	mu        sync.Mutex
-	cached    []Product
+	cached    *productSnapshot
 	expiresAt time.Time
 	loading   bool
 	loadDone  chan struct{}
@@ -26,9 +26,17 @@ type ProductService struct {
 
 const staleRetryWindow = 2 * time.Second
 
+type productSnapshot struct {
+	products        []Product
+	availableColors []string
+	availableBrands []string
+	priceMin        float64
+	priceMax        float64
+}
+
 func NewProductService(source ProductSource, ttl time.Duration) *ProductService {
 	if ttl <= 0 {
-		ttl = 30 * time.Second
+		ttl = DefaultCacheTTLDuration
 	}
 	return &ProductService{
 		source: source,
@@ -45,14 +53,12 @@ func (s *ProductService) WithPopularitySource(source PopularitySource) *ProductS
 func (s *ProductService) QueryProducts(ctx context.Context, query ProductQuery) (ProductListResponse, error) {
 	query = sanitizeQuery(query)
 
-	products, err := s.getAggregatedProducts(ctx)
+	snapshot, err := s.getSnapshot(ctx)
 	if err != nil {
 		return ProductListResponse{}, err
 	}
-	availableColors := listAvailableColors(products)
-	priceMin, priceMax := listAvailablePriceBounds(products)
 
-	filtered := filterProducts(products, query)
+	filtered := filterProducts(snapshot.products, query)
 	sortProducts(filtered, query.Sort)
 	total := len(filtered)
 
@@ -66,10 +72,12 @@ func (s *ProductService) QueryProducts(ctx context.Context, query ProductQuery) 
 		end = total
 	}
 
-	page := filtered[start:end]
-	if page == nil {
+	page := cloneProducts(filtered[start:end])
+	if len(page) == 0 {
 		page = []Product{}
 	}
+	availableColors := cloneStringSlice(snapshot.availableColors)
+	availableBrands := cloneStringSlice(snapshot.availableBrands)
 
 	return ProductListResponse{
 		Items:           page,
@@ -78,20 +86,21 @@ func (s *ProductService) QueryProducts(ctx context.Context, query ProductQuery) 
 		Offset:          query.Offset,
 		HasMore:         end < total,
 		AvailableColors: availableColors,
-		PriceMin:        priceMin,
-		PriceMax:        priceMax,
+		AvailableBrands: availableBrands,
+		PriceMin:        snapshot.priceMin,
+		PriceMax:        snapshot.priceMax,
 	}, nil
 }
 
-func (s *ProductService) getAggregatedProducts(ctx context.Context) ([]Product, error) {
+func (s *ProductService) getSnapshot(ctx context.Context) (*productSnapshot, error) {
 	for {
 		now := s.now()
 
 		s.mu.Lock()
 		if now.Before(s.expiresAt) && s.cached != nil {
-			cachedCopy := cloneProducts(s.cached)
+			cached := s.cached
 			s.mu.Unlock()
-			return cachedCopy, nil
+			return cached, nil
 		}
 
 		if s.loading {
@@ -111,15 +120,15 @@ func (s *ProductService) getAggregatedProducts(ctx context.Context) ([]Product, 
 		loadDone := s.loadDone
 		s.mu.Unlock()
 
-		merged, err := s.loadAndMerge(context.WithoutCancel(ctx))
+		snapshot, err := s.loadSnapshot(context.WithoutCancel(ctx))
 
-		var staleFallback []Product
+		var staleFallback *productSnapshot
 		s.mu.Lock()
 		if err == nil {
-			s.cached = cloneProducts(merged)
+			s.cached = snapshot
 			s.expiresAt = s.now().Add(s.ttl)
 		} else if s.cached != nil {
-			staleFallback = cloneProducts(s.cached)
+			staleFallback = s.cached
 			retryAfter := staleRetryWindow
 			if s.ttl > 0 && s.ttl < retryAfter {
 				retryAfter = s.ttl
@@ -133,9 +142,9 @@ func (s *ProductService) getAggregatedProducts(ctx context.Context) ([]Product, 
 		close(loadDone)
 		s.loadDone = nil
 		if err == nil {
-			cachedCopy := cloneProducts(s.cached)
+			cached := s.cached
 			s.mu.Unlock()
-			return cachedCopy, nil
+			return cached, nil
 		}
 		s.mu.Unlock()
 
@@ -148,7 +157,7 @@ func (s *ProductService) getAggregatedProducts(ctx context.Context) ([]Product, 
 	}
 }
 
-func (s *ProductService) loadAndMerge(ctx context.Context) ([]Product, error) {
+func (s *ProductService) loadSnapshot(ctx context.Context) (*productSnapshot, error) {
 	metadata, err := s.source.LoadMetadata(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load metadata: %w", err)
@@ -169,17 +178,76 @@ func (s *ProductService) loadAndMerge(ctx context.Context) ([]Product, error) {
 		popularity, popErr := s.popularitySource.LoadPopularity(ctx)
 		if popErr != nil {
 			log.Printf("popularity source load failed, continuing without popularity sort data: %v", popErr)
-			return merged, nil
+			return buildProductSnapshot(merged), nil
 		}
 		rankings, rankErr := normalizePopularityRankings(popularity)
 		if rankErr != nil {
 			log.Printf("popularity source data invalid, continuing without popularity sort data: %v", rankErr)
-			return merged, nil
+			return buildProductSnapshot(merged), nil
 		}
 		applyPopularityRanks(merged, rankings)
 	}
 
-	return merged, nil
+	return buildProductSnapshot(merged), nil
+}
+
+func buildProductSnapshot(products []Product) *productSnapshot {
+	availableColors := listAvailableColors(products)
+	availableBrands := listAvailableBrands(products)
+	priceMin, priceMax := listAvailablePriceBounds(products)
+
+	return &productSnapshot{
+		products:        products,
+		availableColors: availableColors,
+		availableBrands: availableBrands,
+		priceMin:        priceMin,
+		priceMax:        priceMax,
+	}
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	cloned := make([]string, len(values))
+	copy(cloned, values)
+	return cloned
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneIntMap(values map[string]int) map[string]int {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]int, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneProducts(products []Product) []Product {
+	if len(products) == 0 {
+		return nil
+	}
+	cloned := make([]Product, len(products))
+	copy(cloned, products)
+	for i := range cloned {
+		cloned[i].Colors = cloneStringSlice(products[i].Colors)
+		cloned[i].ImageURLsByColor = cloneStringMap(products[i].ImageURLsByColor)
+		cloned[i].StockByColor = cloneIntMap(products[i].StockByColor)
+	}
+	return cloned
 }
 
 func sanitizeQuery(query ProductQuery) ProductQuery {
@@ -230,8 +298,8 @@ func mergeProducts(metadata []MetadataRecord, details []DetailsRecord) ([]Produc
 		baseColors := normalizeColors(detail.Colors)
 		stockByColor := normalizeStockByColor(detail.StockByColor, baseColors)
 		imageURLsByColor := normalizeImageURLsByColor(detail.ImageURLsByColor)
-		colors := mergeColorListWithStockKeys(baseColors, stockByColor)
-		colors = mergeColorListWithImageKeys(colors, imageURLsByColor)
+		colors := mergeColorListWithMapKeys(baseColors, stockByColor)
+		colors = mergeColorListWithMapKeys(colors, imageURLsByColor)
 
 		stock := max(0, detail.Stock)
 		if len(stockByColor) > 0 {
@@ -280,6 +348,14 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 		}
 		categoryFilter[normalized] = struct{}{}
 	}
+	brandFilter := make(map[string]struct{}, len(query.Brands))
+	for _, brand := range query.Brands {
+		normalized := normalizeToken(brand)
+		if normalized == "" {
+			continue
+		}
+		brandFilter[normalized] = struct{}{}
+	}
 	conditionFilter := make(map[string]struct{}, len(query.Conditions))
 	for _, condition := range query.Conditions {
 		normalized := normalizeToken(condition)
@@ -312,6 +388,11 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 				continue
 			}
 		}
+		if len(brandFilter) > 0 {
+			if _, ok := brandFilter[normalizeToken(product.Brand)]; !ok {
+				continue
+			}
+		}
 		if len(conditionFilter) > 0 {
 			if _, ok := conditionFilter[normalizeToken(product.Condition)]; !ok {
 				continue
@@ -339,35 +420,30 @@ func sortProducts(products []Product, sortMode string) {
 		return
 	}
 
-	switch strings.ToLower(strings.TrimSpace(sortMode)) {
-	case "popularity":
-		slices.SortStableFunc(products, func(a, b Product) int {
-			aRank := popularityRankOrFallback(a.PopularityRank)
-			bRank := popularityRankOrFallback(b.PopularityRank)
-			if aRank < bRank {
-				return -1
-			}
-			if aRank > bRank {
-				return 1
-			}
-
-			aName := strings.ToLower(strings.TrimSpace(a.Name))
-			bName := strings.ToLower(strings.TrimSpace(b.Name))
-			if aName < bName {
-				return -1
-			}
-			if aName > bName {
-				return 1
-			}
-			if a.ID < b.ID {
-				return -1
-			}
-			if a.ID > b.ID {
-				return 1
-			}
-			return 0
-		})
+	sortModes := parseSortModes(sortMode)
+	if len(sortModes) == 0 {
+		return
 	}
+
+	slices.SortStableFunc(products, func(a, b Product) int {
+		for _, mode := range sortModes {
+			var cmp int
+			switch mode {
+			case SortPopularity:
+				cmp = compareByPopularity(a, b)
+			case SortPriceAsc:
+				cmp = compareByPriceThenNameID(a, b, true)
+			case SortPriceDesc:
+				cmp = compareByPriceThenNameID(a, b, false)
+			default:
+				cmp = 0
+			}
+			if cmp != 0 {
+				return cmp
+			}
+		}
+		return compareByNameThenID(a, b)
+	})
 }
 
 func popularityRankOrFallback(rank int) int {
@@ -375,6 +451,77 @@ func popularityRankOrFallback(rank int) int {
 		return rank
 	}
 	return maxInt
+}
+
+func parseSortModes(rawSort string) []string {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(rawSort)), ",")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(parts))
+	modes := make([]string, 0, len(parts))
+	for _, part := range parts {
+		mode := strings.TrimSpace(part)
+		if mode == "" {
+			continue
+		}
+		if !isSupportedSortMode(mode) {
+			continue
+		}
+		if _, exists := seen[mode]; exists {
+			continue
+		}
+		seen[mode] = struct{}{}
+		modes = append(modes, mode)
+	}
+	return modes
+}
+
+func compareByPopularity(a, b Product) int {
+	aRank := popularityRankOrFallback(a.PopularityRank)
+	bRank := popularityRankOrFallback(b.PopularityRank)
+	if aRank < bRank {
+		return -1
+	}
+	if aRank > bRank {
+		return 1
+	}
+	return 0
+}
+
+func compareByPriceThenNameID(a, b Product, ascending bool) int {
+	if a.Price < b.Price {
+		if ascending {
+			return -1
+		}
+		return 1
+	}
+	if a.Price > b.Price {
+		if ascending {
+			return 1
+		}
+		return -1
+	}
+	return compareByNameThenID(a, b)
+}
+
+func compareByNameThenID(a, b Product) int {
+	aName := strings.ToLower(strings.TrimSpace(a.Name))
+	bName := strings.ToLower(strings.TrimSpace(b.Name))
+	if aName < bName {
+		return -1
+	}
+	if aName > bName {
+		return 1
+	}
+	if a.ID < b.ID {
+		return -1
+	}
+	if a.ID > b.ID {
+		return 1
+	}
+	return 0
 }
 
 func matchesAnyColor(productColors []string, filter map[string]struct{}) bool {
@@ -479,13 +626,13 @@ func normalizeImageURLsByColor(imageURLsByColor map[string]string) map[string]st
 	return normalized
 }
 
-func mergeColorListWithStockKeys(colors []string, stockByColor map[string]int) []string {
-	if len(stockByColor) == 0 {
+func mergeColorListWithMapKeys[T any](colors []string, keyedValues map[string]T) []string {
+	if len(keyedValues) == 0 {
 		return colors
 	}
 
 	seen := make(map[string]struct{}, len(colors))
-	out := make([]string, 0, len(colors)+len(stockByColor))
+	out := make([]string, 0, len(colors)+len(keyedValues))
 	for _, color := range colors {
 		normalized := normalizeToken(color)
 		if normalized == "" {
@@ -498,44 +645,8 @@ func mergeColorListWithStockKeys(colors []string, stockByColor map[string]int) [
 		out = append(out, normalized)
 	}
 
-	missing := make([]string, 0, len(stockByColor))
-	for color := range stockByColor {
-		normalized := normalizeToken(color)
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		missing = append(missing, normalized)
-	}
-	slices.Sort(missing)
-	out = append(out, missing...)
-
-	return out
-}
-
-func mergeColorListWithImageKeys(colors []string, imageURLsByColor map[string]string) []string {
-	if len(imageURLsByColor) == 0 {
-		return colors
-	}
-
-	seen := make(map[string]struct{}, len(colors))
-	out := make([]string, 0, len(colors)+len(imageURLsByColor))
-	for _, color := range colors {
-		normalized := normalizeToken(color)
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-
-	missing := make([]string, 0, len(imageURLsByColor))
-	for color := range imageURLsByColor {
+	missing := make([]string, 0, len(keyedValues))
+	for color := range keyedValues {
 		normalized := normalizeToken(color)
 		if normalized == "" {
 			continue
@@ -623,6 +734,34 @@ func listAvailableColors(products []Product) []string {
 	return out
 }
 
+func listAvailableBrands(products []Product) []string {
+	if len(products) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{}, len(products))
+	out := make([]string, 0, len(products))
+
+	for _, product := range products {
+		brand := normalizeToken(product.Brand)
+		if brand == "" {
+			continue
+		}
+		if _, ok := seen[brand]; ok {
+			continue
+		}
+		seen[brand] = struct{}{}
+		out = append(out, brand)
+	}
+
+	if len(out) == 0 {
+		return []string{}
+	}
+
+	slices.Sort(out)
+	return out
+}
+
 func listAvailablePriceBounds(products []Product) (minPrice float64, maxPrice float64) {
 	if len(products) == 0 {
 		return 0, 0
@@ -688,34 +827,6 @@ func isColorInStockForProduct(product Product, color string) bool {
 	}
 
 	return max(0, stock) > 0
-}
-
-func cloneProducts(products []Product) []Product {
-	if len(products) == 0 {
-		return nil
-	}
-	clone := make([]Product, len(products))
-	for i, product := range products {
-		colors := make([]string, len(product.Colors))
-		copy(colors, product.Colors)
-		product.Colors = colors
-		if len(product.StockByColor) > 0 {
-			stockByColor := make(map[string]int, len(product.StockByColor))
-			for color, stock := range product.StockByColor {
-				stockByColor[color] = stock
-			}
-			product.StockByColor = stockByColor
-		}
-		if len(product.ImageURLsByColor) > 0 {
-			imageURLsByColor := make(map[string]string, len(product.ImageURLsByColor))
-			for color, imageURL := range product.ImageURLsByColor {
-				imageURLsByColor[color] = imageURL
-			}
-			product.ImageURLsByColor = imageURLsByColor
-		}
-		clone[i] = product
-	}
-	return clone
 }
 
 func max(a, b int) int {

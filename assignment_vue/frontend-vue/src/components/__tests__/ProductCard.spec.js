@@ -90,4 +90,19 @@ describe('ProductCard', () => {
 
     expect(wrapper.find('img').attributes('src')).toContain('/product-placeholder.svg')
   })
+
+  it('does not render an original-price value when discount is 100 percent', () => {
+    const wrapper = mount(ProductCard, {
+      props: {
+        product: product({
+          discount_percent: 100,
+          price: 499.99,
+        }),
+      },
+    })
+
+    expect(wrapper.find('p.line-through').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('NaN')
+    expect(wrapper.text()).not.toContain('∞')
+  })
 })
