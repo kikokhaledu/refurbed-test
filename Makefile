@@ -63,7 +63,7 @@ endif
 
 docker-check:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "docker --version > $$null 2>&1; if ($$LASTEXITCODE -ne 0) { Write-Error '[docker-check] Docker CLI not found. Install Docker Desktop and retry.'; exit 1 }; docker info > $$null 2>&1; if ($$LASTEXITCODE -ne 0) { Write-Error '[docker-check] Docker engine is not reachable. Start Docker Desktop and wait until it is running, then retry make up.'; exit 1 }; Write-Output '[docker-check] Docker engine reachable [OK]'"
+	@powershell -NoProfile -Command 'docker --version > $$null 2>&1; if ($$LASTEXITCODE -ne 0) { Write-Error "[docker-check] Docker CLI not found. Install Docker Desktop and retry."; exit 1 }; docker info > $$null 2>&1; if ($$LASTEXITCODE -ne 0) { Write-Error "[docker-check] Docker engine is not reachable. Start Docker Desktop and wait until it is running, then retry make up."; exit 1 }; Write-Output "[docker-check] Docker engine reachable [OK]"'
 else
 	@command -v docker > /dev/null 2>&1 || { echo "[docker-check] Docker CLI not found. Install Docker and retry."; exit 1; }
 	@docker info > /dev/null 2>&1 || { echo "[docker-check] Docker engine is not reachable. Start Docker daemon/Desktop and retry."; exit 1; }
@@ -132,7 +132,7 @@ fmt:
 fmt-check:
 	@echo [fmt-check] Checking backend Go formatting...
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "Push-Location '$(BACKEND_DIR)'; $$unformatted = gofmt -l .; Pop-Location; if ($$unformatted) { $$unformatted; Write-Error '[fmt-check] Unformatted files found'; exit 1 }; Write-Output '[fmt-check] Passed [OK]'"
+	@powershell -NoProfile -Command 'Push-Location "$(BACKEND_DIR)"; $$unformatted = gofmt -l .; Pop-Location; if ($$unformatted) { $$unformatted; Write-Error "[fmt-check] Unformatted files found"; exit 1 }; Write-Output "[fmt-check] Passed [OK]"'
 else
 	@cd $(BACKEND_DIR) && files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "$$files"; echo "[fmt-check] Unformatted files found"; exit 1; fi && echo [fmt-check] Passed [OK]
 endif

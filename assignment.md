@@ -1,4 +1,4 @@
-# Refurbed – Senior Fullstack Engineer
+# Refurbed – Senior Fullstack Engineer Home Assignment
 
 **Backend:** Go  
 **Frontend:** Vue + Tailwind **or** Vanilla JS/HTML/CSS  
